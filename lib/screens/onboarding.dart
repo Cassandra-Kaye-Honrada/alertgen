@@ -568,7 +568,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             });
                           }
 
-                          // Commit the batch
                           await batch.commit();
 
                           Navigator.of(context).pushReplacement(
