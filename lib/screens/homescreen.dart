@@ -1,4 +1,6 @@
-import 'package:allergen/screens/FirstAidScreen.dart';
+import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
+import 'package:allergen/screens/first_Aid_screens/emergencyScreen.dart';
+import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -83,63 +85,70 @@ class _HomescreenState extends State<Homescreen> {
               SizedBox(height: 30),
 
               // Emergency Section
-              Container(
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Color(0xFFF6F8FA),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Color(0xFFE2E8F0), width: 1),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Are you in an\nemergency?',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF2D3748),
-                              height: 1.3,
+              GestureDetector(
+                onLongPress:
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => EmergencyScreen()),
+                    ),
+                child: Container(
+                  padding: EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Color(0xFFF6F8FA),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Color(0xFFE2E8F0), width: 1),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Are you in an\nemergency?',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textBlack,
+                                height: 1.3,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Long press this area, your live location will be shared with the nearest help centre and your emergency contacts',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF718096),
-                              height: 1.4,
+                            SizedBox(height: 8),
+                            Text(
+                              'Long press this area, your live location will be shared with the nearest help centre and your emergency contacts',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textGray,
+                                height: 1.4,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    SizedBox(width: 16),
-                    // Emergency light PNG - replace with your asset
-                    Image.asset(
-                      'assets/images/emergency_light.png', // Add your PNG here
-                      width: 60,
-                      height: 60,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Color(0xFFFF4444),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.warning,
-                            color: Colors.white,
-                            size: 30,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                      SizedBox(width: 16),
+                      // Emergency light PNG - replace with your asset
+                      Image.asset(
+                        'assets/images/emergency_light.png', // Add your PNG here
+                        width: 60,
+                        height: 60,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFF4444),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.warning,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
 
@@ -151,7 +160,7 @@ class _HomescreenState extends State<Homescreen> {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF2D3748),
+                  color: AppColors.textBlack,
                 ),
               ),
 
@@ -186,7 +195,7 @@ class _HomescreenState extends State<Homescreen> {
               Container(
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Color(0xFFF0F9FF),
+                  color: AppColors.defaultbackground,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -200,7 +209,7 @@ class _HomescreenState extends State<Homescreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF0369A1),
+                              color: AppColors.primary,
                             ),
                           ),
                           SizedBox(height: 4),
@@ -208,7 +217,7 @@ class _HomescreenState extends State<Homescreen> {
                             'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF64748B),
+                              color: AppColors.textGray,
                             ),
                           ),
                         ],
@@ -223,7 +232,7 @@ class _HomescreenState extends State<Homescreen> {
                       child: Container(
                         padding: EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Color(0xFF0EA5E9),
+                          color: AppColors.primary,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Icon(

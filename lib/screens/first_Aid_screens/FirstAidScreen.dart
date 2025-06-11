@@ -1,4 +1,6 @@
-import 'package:allergen/screens/EmergencyResponseScreen%20.dart';
+import 'package:allergen/screens/first_Aid_screens/anaphylaxis/severeScreen.dart';
+import 'package:allergen/screens/first_Aid_screens/mild_to_moderate/moderateScreen.dart';
+import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 
 class FirstAidScreen extends StatelessWidget {
@@ -14,7 +16,7 @@ class FirstAidScreen extends StatelessWidget {
         leading: IconButton(
           icon: const Icon(
             Icons.arrow_back_ios,
-            color: Color(0xFF007AFF),
+            color: AppColors.primary,
             size: 20,
           ),
           onPressed: () => Navigator.of(context).pop(),
@@ -22,16 +24,12 @@ class FirstAidScreen extends StatelessWidget {
         title: const Text(
           'First Aid',
           style: TextStyle(
-            color: Color(0xFF007AFF),
+            color: AppColors.primary,
             fontSize: 24,
             fontWeight: FontWeight.w600,
           ),
         ),
         centerTitle: true,
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, color: Color(0xFFE5E5E7)),
-        ),
       ),
       body: Container(
         color: Color(0xFFF2F9FF),
@@ -116,86 +114,95 @@ class FirstAidScreen extends StatelessWidget {
               SizedBox(height: 10),
 
               // Anaphylaxis Section
-              Container(
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Color(0xFFF6F8FA),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Color(0xFFE2E8F0), width: 1),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Anaphylaxis',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFFD32F2F),
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Press this if person have ANY\nONE of the following signs:',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Color(0xFFD32F2F),
-                              height: 1.3,
-                            ),
-                          ),
-                          const SizedBox(height: 15),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              AnaphylaxisSymptomItem(
-                                text: 'Difficult or noisy breathing',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Swelling of tongue',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Swelling or tightness in throat',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Wheeze or persistent cough',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Difficulty talking or hoarse voice',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Persistent dizziness or collapse',
-                              ),
-                              AnaphylaxisSymptomItem(
-                                text: 'Pale and floppy (young children)',
-                              ),
-                            ],
-                          ),
-                        ],
+              GestureDetector(
+                onTap:
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SevereEmergencyListScreen(),
                       ),
                     ),
-                    const SizedBox(width: 15),
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFE8E8),
-                        borderRadius: BorderRadius.circular(40),
-                      ),
-                      child: Center(
-                        child: Image.asset(
-                          'assets/images/emergency_light.png',
-                          width: 50,
-                          height: 50,
-                          fit: BoxFit.contain,
+                child: Container(
+                  padding: EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Color(0xFFF6F8FA),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Color(0xFFE2E8F0), width: 1),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Anaphylaxis',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFD32F2F),
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Press this if person have ANY\nONE of the following signs:',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Color(0xFFD32F2F),
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(height: 15),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                AnaphylaxisSymptomItem(
+                                  text: 'Difficult or noisy breathing',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Swelling of tongue',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Swelling or tightness in throat',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Wheeze or persistent cough',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Difficulty talking or hoarse voice',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Persistent dizziness or collapse',
+                                ),
+                                AnaphylaxisSymptomItem(
+                                  text: 'Pale and floppy (young children)',
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 15),
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFE8E8),
+                          borderRadius: BorderRadius.circular(40),
+                        ),
+                        child: Center(
+                          child: Image.asset(
+                            'assets/images/emergency_light.png',
+                            width: 50,
+                            height: 50,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
