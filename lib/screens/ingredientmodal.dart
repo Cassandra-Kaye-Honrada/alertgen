@@ -182,7 +182,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      child: Container(
+      body: Container(
         padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -201,7 +201,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-      
+
             // Header with back button
             Row(
               children: [
@@ -222,9 +222,9 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                 ),
               ],
             ),
-      
+
             const SizedBox(height: 24),
-      
+
             if (isLoading)
               const Center(
                 child: Padding(
@@ -252,9 +252,9 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                   color: Colors.black87,
                 ),
               ),
-      
+
               const SizedBox(height: 16),
-      
+
               // Allergen warning
               if (allergensFound.isNotEmpty) ...[
                 Container(
@@ -286,9 +286,9 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                     ],
                   ),
                 ),
-      
+
                 const SizedBox(height: 24),
-      
+
                 // Allergen icons
                 Wrap(
                   spacing: 16,
@@ -350,7 +350,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                   ),
                 ),
               ],
-      
+
               const SizedBox(height: 40),
             ],
           ],

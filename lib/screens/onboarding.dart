@@ -2,6 +2,8 @@ import 'package:allergen/screens/homescreen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class OnboardingScreen extends StatefulWidget {
   @override
@@ -14,7 +16,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Map<String, double> allergenSeverity = {};
   TextEditingController searchController = TextEditingController();
   List<String> filteredAllergens = [];
+  List<String> fdaIngredients = [];
+  bool isSearchingFDA = false;
+  List<String> savedAllergens = [];
 
+  // Keep some common allergens as fallback
   final List<String> commonAllergens = [
     'Shellfish',
     'Sesame',
@@ -28,6 +34,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'Wheat',
   ];
 
+  // FDA major allergens as defined by FALCPA
+  final List<String> fdaMajorAllergens = [
+    'Milk',
+    'Eggs',
+    'Fish',
+    'Crustacean shellfish',
+    'Tree nuts',
+    'Peanuts',
+    'Wheat',
+    'Soybeans',
+    'Sesame',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +54,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     fetchUsername();
     loadExistingAllergens();
     searchController.addListener(_onSearchChanged);
+    
+  }
+
+  List<String> _getAllAllergens() {
+    Set<String> allAllergens = {};
+    allAllergens.addAll(commonAllergens);
+    allAllergens.addAll(savedAllergens);
+    return allAllergens.toList();
   }
 
   @override
@@ -44,21 +71,276 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  void _clearSearch() {
+    searchController.clear();
+    // The _onSearchChanged will be triggered automatically by clearing the controller
+  }
+
   void _onSearchChanged() {
-    setState(() {
-      if (searchController.text.isEmpty) {
-        filteredAllergens = List.from(commonAllergens);
-      } else {
+    String searchTerm = searchController.text.trim();
+
+    if (searchTerm.isEmpty) {
+      setState(() {
+        _updateFilteredAllergens();
+        isSearchingFDA = false;
+      });
+    } else if (searchTerm.length >= 2) {
+      _searchFDAIngredients(searchTerm);
+    } else {
+      setState(() {
         filteredAllergens =
             commonAllergens
                 .where(
-                  (allergen) => allergen.toLowerCase().contains(
-                    searchController.text.toLowerCase(),
-                  ),
+                  (allergen) =>
+                      allergen.toLowerCase().contains(searchTerm.toLowerCase()),
                 )
                 .toList();
-      }
+        isSearchingFDA = false;
+      });
+    }
+  }
+
+  void _updateFilteredAllergens() {
+    filteredAllergens = _getAllAllergens();
+  }
+
+  Future<void> _searchFDAIngredients(String searchTerm) async {
+    setState(() {
+      isSearchingFDA = true;
     });
+
+    try {
+      // Search FDA drug labels for ingredients and active ingredients
+      List<String> searchFields = [
+        'active_ingredient',
+        'inactive_ingredient',
+        'substance_name',
+        'openfda.substance_name',
+        'openfda.generic_name',
+      ];
+
+      Set<String> foundIngredients = {};
+
+      // Search multiple fields for comprehensive results
+      for (String field in searchFields) {
+        try {
+          final response = await http.get(
+            Uri.parse(
+              'https://api.fda.gov/drug/label.json?search=$field:"$searchTerm"&limit=50',
+            ),
+          );
+
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+
+            if (data['results'] != null) {
+              for (var result in data['results']) {
+                // Extract ingredients from various fields
+                _extractIngredientsFromResult(
+                  result,
+                  searchTerm,
+                  foundIngredients,
+                );
+              }
+            }
+          }
+        } catch (e) {
+          print('Error searching $field: $e');
+          continue;
+        }
+      }
+
+      // Also search for partial matches in ingredient lists
+      try {
+        final broadResponse = await http.get(
+          Uri.parse(
+            'https://api.fda.gov/drug/label.json?search=active_ingredient:*$searchTerm*+OR+inactive_ingredient:*$searchTerm*&limit=30',
+          ),
+        );
+
+        if (broadResponse.statusCode == 200) {
+          final broadData = json.decode(broadResponse.body);
+          if (broadData['results'] != null) {
+            for (var result in broadData['results']) {
+              _extractIngredientsFromResult(
+                result,
+                searchTerm,
+                foundIngredients,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        print('Error in broad search: $e');
+      }
+
+      // Add major FDA allergens that match search
+      for (String allergen in fdaMajorAllergens) {
+        if (allergen.toLowerCase().contains(searchTerm.toLowerCase())) {
+          foundIngredients.add(allergen);
+        }
+      }
+
+      setState(() {
+        fdaIngredients = foundIngredients.toList();
+
+        // Combine common allergens with FDA results for filtered list
+        Set<String> combinedAllergens = {};
+
+        // Add matching common allergens
+        combinedAllergens.addAll(
+          commonAllergens.where(
+            (allergen) =>
+                allergen.toLowerCase().contains(searchTerm.toLowerCase()),
+          ),
+        );
+
+        // Add FDA ingredients
+        combinedAllergens.addAll(fdaIngredients);
+
+        filteredAllergens = combinedAllergens.toList();
+        isSearchingFDA = false;
+      });
+    } catch (e) {
+      print('Error searching FDA: $e');
+      // Fallback to local search
+      setState(() {
+        filteredAllergens =
+            commonAllergens
+                .where(
+                  (allergen) =>
+                      allergen.toLowerCase().contains(searchTerm.toLowerCase()),
+                )
+                .toList();
+        isSearchingFDA = false;
+      });
+    }
+  }
+
+  void _extractIngredientsFromResult(
+    Map<String, dynamic> result,
+    String searchTerm,
+    Set<String> foundIngredients,
+  ) {
+    // Extract from active_ingredient
+    if (result['active_ingredient'] != null) {
+      for (var ingredient in result['active_ingredient']) {
+        String ingredientName = '';
+        if (ingredient is String) {
+          ingredientName = ingredient;
+        } else if (ingredient is Map && ingredient['name'] != null) {
+          ingredientName = ingredient['name'].toString();
+        }
+
+        if (ingredientName.isNotEmpty) {
+          List<String> extracted = _extractPotentialAllergens(
+            ingredientName,
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+
+    // Extract from inactive_ingredient
+    if (result['inactive_ingredient'] != null) {
+      for (var ingredient in result['inactive_ingredient']) {
+        String ingredientName = ingredient.toString();
+        if (ingredientName.isNotEmpty) {
+          List<String> extracted = _extractPotentialAllergens(
+            ingredientName,
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+
+    // Extract from openfda fields
+    if (result['openfda'] != null) {
+      var openfda = result['openfda'];
+
+      if (openfda['substance_name'] != null) {
+        for (var substance in openfda['substance_name']) {
+          List<String> extracted = _extractPotentialAllergens(
+            substance.toString(),
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+
+      if (openfda['generic_name'] != null) {
+        for (var name in openfda['generic_name']) {
+          List<String> extracted = _extractPotentialAllergens(
+            name.toString(),
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+  }
+
+  List<String> _extractPotentialAllergens(String text, String searchTerm) {
+    List<String> allergens = [];
+    String lowerText = text.toLowerCase();
+    String lowerSearchTerm = searchTerm.toLowerCase();
+
+    // If the text contains the search term, process it
+    if (lowerText.contains(lowerSearchTerm)) {
+      // Clean and format the ingredient name
+      String cleanedText = _cleanIngredientName(text);
+
+      if (cleanedText.isNotEmpty && cleanedText.length <= 50) {
+        // Reasonable length limit
+        allergens.add(cleanedText);
+      }
+
+      // Also extract individual words that contain the search term
+      List<String> words = text.split(RegExp(r'[,;()\[\]\s]+'));
+      for (String word in words) {
+        String cleanWord = _cleanIngredientName(word);
+        if (cleanWord.toLowerCase().contains(lowerSearchTerm) &&
+            cleanWord.length >= 3 &&
+            cleanWord.length <= 30) {
+          allergens.add(cleanWord);
+        }
+      }
+    }
+
+    return allergens;
+  }
+
+  String _cleanIngredientName(String text) {
+    // Remove common pharmaceutical suffixes and prefixes
+    String cleaned =
+        text
+            .replaceAll(
+              RegExp(
+                r'\b(hydrochloride|hcl|sulfate|sodium|mg|mcg|iu)\b',
+                caseSensitive: false,
+              ),
+              '',
+            )
+            .replaceAll(
+              RegExp(r'[^\w\s-]'),
+              '',
+            ) // Remove special chars except hyphens
+            .replaceAll(RegExp(r'\s+'), ' ') // Normalize spaces
+            .trim();
+
+    // Capitalize first letter of each word
+    return cleaned
+        .split(' ')
+        .map(
+          (word) =>
+              word.isNotEmpty
+                  ? word[0].toUpperCase() + word.substring(1).toLowerCase()
+                  : '',
+        )
+        .where((word) => word.isNotEmpty)
+        .join(' ');
   }
 
   Future<void> fetchUsername() async {
@@ -100,6 +382,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         setState(() {
           selectedAllergens.clear();
           allergenSeverity.clear();
+          savedAllergens.clear();
 
           for (QueryDocumentSnapshot doc in profileSnapshot.docs) {
             Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
@@ -109,12 +392,55 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             if (allergenName.isNotEmpty) {
               selectedAllergens.add(allergenName);
               allergenSeverity[allergenName] = severity;
+              savedAllergens.add(allergenName);
             }
           }
+          _updateFilteredAllergens();
         });
       }
     } catch (e) {
       print('Error loading existing allergens: $e');
+    }
+  }
+
+  Future<void> deleteAllergen(String allergen) async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        QuerySnapshot docs =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('profile')
+                .where('type', isEqualTo: 'allergen')
+                .where('name', isEqualTo: allergen)
+                .get();
+
+        for (QueryDocumentSnapshot doc in docs.docs) {
+          await doc.reference.delete();
+        }
+
+        setState(() {
+          selectedAllergens.remove(allergen);
+          allergenSeverity.remove(allergen);
+          savedAllergens.remove(allergen);
+          _updateFilteredAllergens();
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$allergen deleted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting allergen: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -139,10 +465,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void showAllergenModal(String allergen, {bool isManualAdd = false}) {
     double currentSeverity = allergenSeverity[allergen] ?? 0.5;
     TextEditingController manualAllergenController = TextEditingController();
-
-    if (isManualAdd) {
-      manualAllergenController.text = allergen;
-    }
+    if (isManualAdd) manualAllergenController.text = allergen;
 
     showModalBottomSheet(
       context: context,
@@ -171,7 +494,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w500,
-                            color: Colors.black87,
                           ),
                         ),
                         SizedBox(height: 16),
@@ -181,13 +503,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             hintText: 'Enter allergen name',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Color(0xFF0891B2)),
                             ),
                             contentPadding: EdgeInsets.symmetric(
                               horizontal: 16,
@@ -195,7 +510,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             ),
                           ),
                         ),
-                        SizedBox(height: 24),
                       ] else ...[
                         Row(
                           children: [
@@ -204,112 +518,57 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w500,
-                                color: Colors.black87,
                               ),
                             ),
-                            SizedBox(width: 8),
-                            Icon(
-                              Icons.info_outline,
-                              size: 18,
-                              color: Colors.grey.shade600,
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 24),
-                      ],
-
-                      Text(
-                        'How severe is this allergen reaction?',
-                        style: TextStyle(fontSize: 16, color: Colors.black87),
-                      ),
-                      SizedBox(height: 24),
-
-                      // Severity Slider
-                      Container(
-                        child: Column(
-                          children: [
-                            SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 8,
-                                thumbShape: RoundSliderThumbShape(
-                                  enabledThumbRadius: 12,
-                                ),
-                                overlayShape: RoundSliderOverlayShape(
-                                  overlayRadius: 20,
-                                ),
-                                activeTrackColor: _getSliderColor(
-                                  currentSeverity,
-                                ),
-                                inactiveTrackColor: Colors.grey.shade300,
-                                thumbColor: _getSliderColor(currentSeverity),
-                                overlayColor: _getSliderColor(
-                                  currentSeverity,
-                                ).withOpacity(0.2),
-                              ),
-                              child: Slider(
-                                value: currentSeverity,
-                                min: 0.0,
-                                max: 1.0,
-                                onChanged: (value) {
-                                  setModalState(() {
-                                    currentSeverity = value;
-                                  });
+                            Spacer(),
+                            if (selectedAllergens.contains(allergen))
+                              IconButton(
+                                icon: Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  deleteAllergen(allergen);
                                 },
                               ),
-                            ),
-                            SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Mild',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                Text(
-                                  'Moderate',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                Text(
-                                  'Severe',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
                           ],
                         ),
-                      ),
-
+                      ],
                       SizedBox(height: 24),
-
+                      Text(
+                        'How severe is this allergen reaction?',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      SizedBox(height: 24),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 8,
+                          activeTrackColor: _getSliderColor(currentSeverity),
+                          thumbColor: _getSliderColor(currentSeverity),
+                        ),
+                        child: Slider(
+                          value: currentSeverity,
+                          onChanged:
+                              (value) =>
+                                  setModalState(() => currentSeverity = value),
+                        ),
+                      ),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Icon(
-                            Icons.edit,
-                            size: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                          SizedBox(width: 4),
                           Text(
-                            'Drag to edit',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
+                            'Mild',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                          Text(
+                            'Moderate',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                          Text(
+                            'Severe',
+                            style: TextStyle(color: Colors.grey.shade600),
                           ),
                         ],
                       ),
-
                       SizedBox(height: 32),
-
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -318,28 +577,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 isManualAdd
                                     ? manualAllergenController.text.trim()
                                     : allergen;
-
                             if (finalAllergen.isNotEmpty) {
                               setState(() {
                                 selectedAllergens.add(finalAllergen);
                                 allergenSeverity[finalAllergen] =
                                     currentSeverity;
-
-                                // Add to common allergens list if it's a manual entry and not already there
-                                if (isManualAdd &&
-                                    !commonAllergens.contains(finalAllergen)) {
-                                  commonAllergens.add(finalAllergen);
-                                  filteredAllergens = List.from(
-                                    commonAllergens,
-                                  );
+                                if (!savedAllergens.contains(finalAllergen)) {
+                                  savedAllergens.add(finalAllergen);
                                 }
+                                _updateFilteredAllergens();
                               });
                             }
                             Navigator.pop(context);
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Color(0xFF0891B2),
-                            foregroundColor: Colors.white,
                             padding: EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -350,6 +602,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -402,17 +655,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             SizedBox(height: 8),
             Text(
-              'Pick what allergen you have',
+              'Search for allergens and drug ingredients',
               style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
-            SizedBox(height: 8),
-            Text(
-              'We want to recommend the best option. If you don\'t have any allergen just continue.',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-            ),
             SizedBox(height: 24),
-
-            // Search Bar
+            // Search Bar with Clear Button
             Container(
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
@@ -421,9 +668,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: TextField(
                 controller: searchController,
                 decoration: InputDecoration(
-                  hintText: 'Search for Allergens',
+                  hintText: 'Search ingredients...',
                   hintStyle: TextStyle(color: Colors.grey.shade500),
-                  prefixIcon: Icon(Icons.search, color: Colors.grey.shade500),
+                  prefixIcon:
+                      isSearchingFDA
+                          ? Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF0891B2),
+                                ),
+                              ),
+                            ),
+                          )
+                          : Icon(Icons.search, color: Colors.grey.shade500),
+                  suffixIcon:
+                      searchController.text.isNotEmpty
+                          ? IconButton(
+                            icon: Icon(
+                              Icons.clear,
+                              color: Colors.grey.shade500,
+                            ),
+                            onPressed: _clearSearch,
+                            tooltip: 'Clear search',
+                          )
+                          : null,
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 16,
@@ -432,10 +705,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
               ),
             ),
-
-            SizedBox(height: 32),
-
-            // Allergen Chips
+            SizedBox(height: 24),
+            // Allergen Tiles
             Expanded(
               child: SingleChildScrollView(
                 child: Wrap(
@@ -444,6 +715,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children:
                       filteredAllergens.map((allergen) {
                         bool isSelected = selectedAllergens.contains(allergen);
+                        bool isFromFDA = fdaIngredients.contains(allergen);
+                        bool isSaved = savedAllergens.contains(allergen);
                         Color chipColor =
                             isSelected
                                 ? _getSeverityColor(
@@ -474,6 +747,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                         color: Colors.green,
                                         width: 2,
                                       )
+                                      : isFromFDA
+                                      ? Border.all(
+                                        color: Color(0xFF0891B2),
+                                        width: 1,
+                                      )
+                                      : isSaved
+                                      ? Border.all(
+                                        color: Colors.purple,
+                                        width: 1,
+                                      )
                                       : null,
                             ),
                             child: Row(
@@ -487,12 +770,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   ),
                                   SizedBox(width: 8),
                                 ],
-                                Text(
-                                  allergen,
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
+                                if (isFromFDA && !isSelected) ...[
+                                  Icon(
+                                    Icons.medication,
+                                    size: 14,
+                                    color: Color(0xFF0891B2),
+                                  ),
+                                  SizedBox(width: 6),
+                                ],
+                                if (isSaved && !isSelected && !isFromFDA) ...[
+                                  Icon(
+                                    Icons.bookmark,
+                                    size: 14,
+                                    color: Colors.purple,
+                                  ),
+                                  SizedBox(width: 6),
+                                ],
+                                Flexible(
+                                  child: Text(
+                                    allergen,
+                                    style: TextStyle(
+                                      color: Colors.black87,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
@@ -503,10 +805,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
               ),
             ),
-
             SizedBox(height: 24),
-
-            // Bottom Buttons
             Row(
               children: [
                 Expanded(
@@ -520,7 +819,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                     ),
                     child: Text(
-                      'Not here? Manually add',
+                      'Add manually',
                       style: TextStyle(
                         color: Color(0xFF0891B2),
                         fontSize: 16,
@@ -533,21 +832,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () async {
-                      // Save allergens to Firebase subcollection
                       try {
                         User? user = FirebaseAuth.instance.currentUser;
                         if (user != null) {
-                          // Create a batch to save multiple allergens
                           WriteBatch batch = FirebaseFirestore.instance.batch();
-
-                          // Reference to the profile subcollection
                           CollectionReference profileRef = FirebaseFirestore
                               .instance
                               .collection('users')
                               .doc(user.uid)
                               .collection('profile');
 
-                          // First, delete existing allergens in the profile subcollection
                           QuerySnapshot existingAllergens =
                               await profileRef
                                   .where('type', isEqualTo: 'allergen')
@@ -557,7 +851,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             batch.delete(doc.reference);
                           }
 
-                          // Add new allergens to the profile subcollection
                           for (String allergen in selectedAllergens) {
                             DocumentReference allergenDoc = profileRef.doc();
                             batch.set(allergenDoc, {
@@ -565,15 +858,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               'severity': allergenSeverity[allergen] ?? 0.5,
                               'createdAt': FieldValue.serverTimestamp(),
                               'type': 'allergen',
+                              'source':
+                                  fdaIngredients.contains(allergen)
+                                      ? 'FDA_DRUG'
+                                      : 'manual',
                             });
                           }
 
                           await batch.commit();
-
                           Navigator.of(context).pushReplacement(
                             MaterialPageRoute(builder: (_) => Homescreen()),
                           );
-
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('Allergens saved successfully!'),
