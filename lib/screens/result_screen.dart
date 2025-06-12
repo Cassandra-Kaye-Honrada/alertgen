@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
+import 'package:allergen/screens/ingredientmodal.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class ResultScreen extends StatefulWidget {
   final File image;
@@ -30,18 +33,17 @@ class ResultScreen extends StatefulWidget {
 class _ResultScreenState extends State<ResultScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  late List<String> editableIngredients;
+  late List<String> currentIngredients;
   late List<AllergenInfo> currentAllergens;
   bool isEditing = false;
-  List<String> tempIngredients = [];
+  bool isUpdatingAllergens = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    editableIngredients = List.from(widget.ingredients);
+    currentIngredients = List.from(widget.ingredients);
     currentAllergens = List.from(widget.allergens);
-    tempIngredients = List.from(editableIngredients);
   }
 
   @override
@@ -52,25 +54,110 @@ class _ResultScreenState extends State<ResultScreen>
 
   void _toggleEdit() {
     setState(() {
-      if (isEditing) {
-        tempIngredients = List.from(editableIngredients);
-      }
       isEditing = !isEditing;
     });
   }
 
-  void _saveChanges() {
+  Future<void> _saveChanges() async {
     setState(() {
-      editableIngredients = List.from(tempIngredients);
       isEditing = false;
+      isUpdatingAllergens = true;
     });
-    widget.onIngredientsChanged(editableIngredients);
+
+    // Update allergens based on new ingredients
+    await _updateAllergens();
+
+    // Notify parent of ingredient changes
+    await widget.onIngredientsChanged(currentIngredients);
+
+    setState(() {
+      isUpdatingAllergens = false;
+    });
   }
 
-  void _cancelChanges() {
+  Future<void> _updateAllergens() async {
+    // Simple allergen detection map
+    Map<String, Map<String, dynamic>> allergenMap = {
+      'milk': {
+        'level': 'severe',
+        'symptoms': ['stomach pain', 'bloating', 'diarrhea'],
+      },
+      'dairy': {
+        'level': 'severe',
+        'symptoms': ['stomach pain', 'bloating', 'diarrhea'],
+      },
+      'eggs': {
+        'level': 'severe',
+        'symptoms': ['skin rash', 'nausea', 'vomiting'],
+      },
+      'egg': {
+        'level': 'severe',
+        'symptoms': ['skin rash', 'nausea', 'vomiting'],
+      },
+      'peanuts': {
+        'level': 'severe',
+        'symptoms': ['difficulty breathing', 'swelling', 'anaphylaxis'],
+      },
+      'peanut': {
+        'level': 'severe',
+        'symptoms': ['difficulty breathing', 'swelling', 'anaphylaxis'],
+      },
+      'nuts': {
+        'level': 'moderate',
+        'symptoms': ['throat swelling', 'hives', 'difficulty breathing'],
+      },
+      'wheat': {
+        'level': 'moderate',
+        'symptoms': ['bloating', 'abdominal pain', 'fatigue'],
+      },
+      'gluten': {
+        'level': 'moderate',
+        'symptoms': ['bloating', 'abdominal pain', 'fatigue'],
+      },
+      'soy': {
+        'level': 'mild',
+        'symptoms': ['mild nausea', 'skin irritation'],
+      },
+      'fish': {
+        'level': 'severe',
+        'symptoms': ['hives', 'swelling', 'difficulty breathing'],
+      },
+      'shellfish': {
+        'level': 'severe',
+        'symptoms': ['hives', 'swelling', 'difficulty breathing'],
+      },
+      'sesame': {
+        'level': 'mild',
+        'symptoms': ['mild skin reaction', 'digestive discomfort'],
+      },
+    };
+
+    List<AllergenInfo> detectedAllergens = [];
+
+    for (String ingredient in currentIngredients) {
+      String lowerIngredient = ingredient.toLowerCase();
+
+      for (String allergen in allergenMap.keys) {
+        if (lowerIngredient.contains(allergen)) {
+          bool alreadyExists = detectedAllergens.any(
+            (a) => a.name.toLowerCase() == allergen,
+          );
+
+          if (!alreadyExists) {
+            detectedAllergens.add(
+              AllergenInfo(
+                name: allergen.capitalize(),
+                riskLevel: allergenMap[allergen]!['level'],
+                symptoms: allergenMap[allergen]!['symptoms'],
+              ),
+            );
+          }
+        }
+      }
+    }
+
     setState(() {
-      tempIngredients = List.from(editableIngredients);
-      isEditing = false;
+      currentAllergens = detectedAllergens;
     });
   }
 
@@ -95,9 +182,9 @@ class _ResultScreenState extends State<ResultScreen>
             ),
             TextButton(
               onPressed: () {
-                if (newIngredient.isNotEmpty) {
+                if (newIngredient.trim().isNotEmpty) {
                   setState(() {
-                    tempIngredients.add(newIngredient.trim());
+                    currentIngredients.add(newIngredient.trim());
                   });
                   Navigator.pop(context);
                 }
@@ -112,8 +199,42 @@ class _ResultScreenState extends State<ResultScreen>
 
   void _removeIngredient(int index) {
     setState(() {
-      tempIngredients.removeAt(index);
+      currentIngredients.removeAt(index);
     });
+  }
+
+  Color _getIngredientColor(String ingredient) {
+    String lowerIngredient = ingredient.toLowerCase();
+
+    // Check severe allergens (red)
+    List<String> severeAllergens = [
+      'milk',
+      'dairy',
+      'eggs',
+      'egg',
+      'peanuts',
+      'peanut',
+      'fish',
+      'shellfish',
+    ];
+    for (String allergen in severeAllergens) {
+      if (lowerIngredient.contains(allergen)) return Colors.red;
+    }
+
+    // Check moderate allergens (yellow)
+    List<String> moderateAllergens = ['nuts', 'wheat', 'gluten'];
+    for (String allergen in moderateAllergens) {
+      if (lowerIngredient.contains(allergen)) return Colors.orange;
+    }
+
+    // Check mild allergens (green)
+    List<String> mildAllergens = ['soy', 'sesame'];
+    for (String allergen in mildAllergens) {
+      if (lowerIngredient.contains(allergen)) return Colors.green;
+    }
+
+    // Safe ingredient (grey)
+    return Colors.grey;
   }
 
   @override
@@ -130,7 +251,6 @@ class _ResultScreenState extends State<ResultScreen>
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // IconButton(icon: Icon(Icons.print_outlined), onPressed: () {}),
           Image.asset('assets/images/history.png', width: 40, height: 40),
         ],
       ),
@@ -161,7 +281,6 @@ class _ResultScreenState extends State<ResultScreen>
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       SizedBox(height: 8),
                       if (currentAllergens.isNotEmpty)
                         Container(
@@ -251,7 +370,6 @@ class _ResultScreenState extends State<ResultScreen>
               ],
             ),
           ),
-
           SizedBox(height: 16),
           TabBar(
             controller: _tabController,
@@ -279,9 +397,25 @@ class _ResultScreenState extends State<ResultScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Allergenic Overview',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Allergenic Overview',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              if (isUpdatingAllergens)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.primary,
+                    ),
+                  ),
+                ),
+            ],
           ),
           SizedBox(height: 16),
           if (currentAllergens.isNotEmpty)
@@ -434,65 +568,141 @@ class _ResultScreenState extends State<ResultScreen>
               ),
               IconButton(
                 onPressed: _toggleEdit,
-                icon: Icon(
-                  isEditing ? Icons.close : Icons.edit,
-                  color: Colors.blue,
+                icon: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color:
+                        isEditing
+                            ? Colors.red[50]
+                            : AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    isEditing ? Icons.close : Icons.edit,
+                    color: isEditing ? Colors.red : AppColors.primary,
+                    size: 20,
+                  ),
                 ),
               ),
             ],
           ),
           SizedBox(height: 12),
-
           Container(
-            padding: EdgeInsets.all(12),
+            width: 400,
+            height: 100,
+            padding: EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 16,
+            ), // Increased padding
             decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
+              color: AppColors.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.15)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ingredients:',
-                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                  'Color Legend:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppColors.primary,
+                  ),
                 ),
-                SizedBox(height: 8),
-
+                SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildColorLegendItem(Colors.grey, 'Safe'),
+                      SizedBox(width: 20),
+                      _buildColorLegendItem(Colors.green, 'Mild'),
+                      SizedBox(width: 20),
+                      _buildColorLegendItem(Colors.orange, 'Moderate'),
+                      SizedBox(width: 20),
+                      _buildColorLegendItem(Colors.red, 'Severe'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 16),
+          Container(
+            margin: EdgeInsets.symmetric(horizontal: 4),
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[200]!),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ingredients (${currentIngredients.length}):',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: AppColors.textBlack,
+                  ),
+                ),
+                SizedBox(height: 12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    ...(isEditing ? tempIngredients : editableIngredients)
-                        .asMap()
-                        .entries
-                        .map((entry) {
-                          int index = entry.key;
-                          String ingredient = entry.value;
-                          return Chip(
-                            label: Text(
-                              ingredient,
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            deleteIcon:
-                                isEditing ? Icon(Icons.close, size: 14) : null,
-                            onDeleted:
-                                isEditing
-                                    ? () => _removeIngredient(index)
-                                    : null,
-                            backgroundColor: Colors.white,
-                            side: BorderSide(color: Colors.grey[300]!),
-                          );
-                        })
-                        .toList(),
+                    // Simplified ingredient chips
+                    for (int i = 0; i < currentIngredients.length; i++)
+                      _buildIngredientChip(currentIngredients[i], i),
 
-                    // Add button chip
+                    // Add button
                     if (isEditing)
                       GestureDetector(
                         onTap: _addIngredient,
-                        child: Chip(
-                          label: Icon(Icons.add, size: 18, color: Colors.blue),
-                          backgroundColor: Colors.blue[50],
-                          side: BorderSide(color: Colors.blue[100]!),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppColors.primary.withOpacity(0.3),
+                              style: BorderStyle.solid,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.add,
+                                size: 16,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Add',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                   ],
@@ -500,46 +710,193 @@ class _ResultScreenState extends State<ResultScreen>
               ],
             ),
           ),
-
-          // Save/Cancel buttons at bottom
           if (isEditing) ...[
             SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _saveChanges,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _saveChanges,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: Text(
+                        'Save Changes',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
                       ),
                     ),
-                    child: Text('Save Changes'),
                   ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _cancelChanges,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[200],
-                      foregroundColor: Colors.grey[700],
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          isEditing = false;
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[100],
+                        foregroundColor: Colors.grey[700],
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                        side: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
                       ),
                     ),
-                    child: Text('Cancel'),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ],
       ),
     );
+  }
+
+  Widget _buildIngredientChip(String ingredient, int index) {
+    Color chipColor = _getIngredientColor(ingredient);
+    bool isSafe = chipColor == Colors.grey;
+
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true, // optional: allows full height
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder:
+              (context) => DraggableScrollableSheet(
+                expand: false,
+                builder:
+                    (_, controller) => SingleChildScrollView(
+                      controller: controller,
+                      child: IngredientAllergenModal(ingredient: ingredient),
+                    ),
+              ),
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: isSafe ? chipColor.withOpacity(0.15) : chipColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color:
+                isSafe
+                    ? chipColor.withOpacity(0.4)
+                    : chipColor.withOpacity(0.8),
+            width: isSafe ? 1.5 : 0,
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isEditing ? 10 : 12,
+            vertical: 8,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                ingredient,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isSafe ? Colors.black87 : Colors.white,
+                  fontWeight: isSafe ? FontWeight.w500 : FontWeight.w600,
+                ),
+              ),
+              if (!isEditing) ...[
+                SizedBox(width: 6),
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: isSafe ? Colors.black54 : Colors.white70,
+                ),
+              ],
+              if (isEditing) ...[
+                SizedBox(width: 6),
+                GestureDetector(
+                  onTap: () => _removeIngredient(index),
+                  child: Container(
+                    padding: EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color:
+                          isSafe
+                              ? Colors.black.withOpacity(0.1)
+                              : Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.close,
+                      size: 12,
+                      color: isSafe ? Colors.black54 : Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorLegendItem(Color color, String label) {
+    return Column(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 2,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey[700],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Extension to capitalize first letter
+extension StringCapitalize on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return this[0].toUpperCase() + substring(1).toLowerCase();
   }
 }
