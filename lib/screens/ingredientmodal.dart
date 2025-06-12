@@ -17,7 +17,7 @@ class IngredientAllergenModal extends StatefulWidget {
 class IngredientAllergenModalState extends State<IngredientAllergenModal> {
   bool isLoading = true;
   String simplifiedIngredient = '';
-  String allergensFound = '';
+  List<String> allergensFound = [];
   String riskLevel = 'Unknown';
   String? errorMessage;
 
@@ -42,7 +42,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
       final usdaAllergens = await getAllergenInfoFromUSDA(simplifiedIngredient);
 
       setState(() {
-        allergensFound = usdaAllergens['allergens'] ?? 'None';
+        allergensFound = usdaAllergens['allergens'] ?? [];
         riskLevel = usdaAllergens['risk'] ?? 'Unknown';
         isLoading = false;
       });
@@ -68,7 +68,9 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
     return response.text?.trim() ?? rawIngredient;
   }
 
-  Future<Map<String, String>> getAllergenInfoFromUSDA(String ingredient) async {
+  Future<Map<String, dynamic>> getAllergenInfoFromUSDA(
+    String ingredient,
+  ) async {
     final url =
         'https://api.nal.usda.gov/fdc/v1/foods/search?query=$ingredient&api_key=$usdaApiKey&pageSize=1';
 
@@ -82,7 +84,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
     final foods = data['foods'] as List<dynamic>;
 
     if (foods.isEmpty) {
-      return {'allergens': 'None', 'risk': 'Safe'};
+      return {'allergens': <String>[], 'risk': 'Safe'};
     }
 
     final description = foods.first['description'].toString().toLowerCase();
@@ -96,46 +98,250 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
       'tree nut',
       'shellfish',
       'fish',
+      'oat',
+      'sesame',
     ];
 
+    List<String> foundAllergens = [];
     for (var allergen in knownAllergens) {
       if (description.contains(allergen)) {
-        return {
-          'allergens': allergen[0].toUpperCase() + allergen.substring(1),
-          'risk': 'Likely Risk',
-        };
+        foundAllergens.add(allergen[0].toUpperCase() + allergen.substring(1));
       }
     }
 
-    return {'allergens': 'None', 'risk': 'Safe'};
+    return {
+      'allergens': foundAllergens,
+      'risk': foundAllergens.isNotEmpty ? 'Contains allergen' : 'Safe',
+    };
+  }
+
+  IconData _getAllergenIcon(String allergen) {
+    switch (allergen.toLowerCase()) {
+      case 'milk':
+        return Icons.local_drink;
+      case 'egg':
+        return Icons.egg;
+      case 'peanut':
+        return Icons.scatter_plot;
+      case 'soy':
+        return Icons.eco;
+      case 'wheat':
+        return Icons.grass;
+      case 'tree nut':
+        return Icons.park;
+      case 'shellfish':
+        return Icons.set_meal;
+      case 'fish':
+        return Icons.set_meal;
+      case 'oat':
+        return Icons.grain;
+      case 'sesame':
+        return Icons.circle;
+      default:
+        return Icons.warning;
+    }
+  }
+
+  Color _getAllergenColor(String allergen) {
+    switch (allergen.toLowerCase()) {
+      case 'milk':
+        return Colors.pink.shade100;
+      case 'oat':
+        return Colors.blue.shade100;
+      case 'egg':
+        return Colors.yellow.shade100;
+      case 'peanut':
+        return Colors.orange.shade100;
+      case 'soy':
+        return Colors.green.shade100;
+      case 'wheat':
+        return Colors.amber.shade100;
+      case 'sesame':
+        return Colors.brown.shade100;
+      default:
+        return Colors.grey.shade100;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      width: double.infinity,
-      child:
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : errorMessage != null
-              ? Text('Error: $errorMessage')
-              : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Original Ingredient: ${widget.ingredient}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  Text('Simplified: $simplifiedIngredient'),
-                  const SizedBox(height: 10),
-                  Text('Allergens: $allergensFound'),
-                  const SizedBox(height: 10),
-                  Text('Risk Level: $riskLevel'),
-                  const SizedBox(height: 20),
-                ],
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle bar
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Header with back button
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
+              const SizedBox(width: 12),
+              const Text(
+                'About the ingredient',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.blue,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (isLoading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'Error: $errorMessage',
+                style: const TextStyle(color: Colors.red),
+              ),
+            )
+          else ...[
+            // Ingredient name
+            Text(
+              simplifiedIngredient.isNotEmpty
+                  ? simplifiedIngredient
+                  : widget.ingredient,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Allergen warning
+            if (allergensFound.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: Colors.orange.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Contains an allergen',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Allergen icons
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children:
+                    allergensFound.map((allergen) {
+                      return Column(
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: _getAllergenColor(allergen),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              _getAllergenIcon(allergen),
+                              size: 30,
+                              color: Colors.red.shade400,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            allergen,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      size: 16,
+                      color: Colors.green.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'No allergens detected',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 40),
+          ],
+        ],
+      ),
     );
   }
 }

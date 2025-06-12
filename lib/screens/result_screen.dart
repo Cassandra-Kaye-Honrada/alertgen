@@ -38,6 +38,11 @@ class _ResultScreenState extends State<ResultScreen>
   bool isEditing = false;
   bool isUpdatingAllergens = false;
 
+  // API Configuration
+  static const String _apiKey = 'AIzaSyCzyd0ukiEilgPiJ29HNplB2UtWyOKCZkA';
+  static const String _baseUrl =
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+
   @override
   void initState() {
     super.initState();
@@ -64,8 +69,8 @@ class _ResultScreenState extends State<ResultScreen>
       isUpdatingAllergens = true;
     });
 
-    // Update allergens based on new ingredients
-    await _updateAllergens();
+    // Update allergens based on new ingredients using AI
+    await _updateAllergensWithAI();
 
     // Notify parent of ingredient changes
     await widget.onIngredientsChanged(currentIngredients);
@@ -75,90 +80,124 @@ class _ResultScreenState extends State<ResultScreen>
     });
   }
 
-  Future<void> _updateAllergens() async {
-    // Simple allergen detection map
-    Map<String, Map<String, dynamic>> allergenMap = {
-      'milk': {
-        'level': 'severe',
-        'symptoms': ['stomach pain', 'bloating', 'diarrhea'],
-      },
-      'dairy': {
-        'level': 'severe',
-        'symptoms': ['stomach pain', 'bloating', 'diarrhea'],
-      },
-      'eggs': {
-        'level': 'severe',
-        'symptoms': ['skin rash', 'nausea', 'vomiting'],
-      },
-      'egg': {
-        'level': 'severe',
-        'symptoms': ['skin rash', 'nausea', 'vomiting'],
-      },
-      'peanuts': {
-        'level': 'severe',
-        'symptoms': ['difficulty breathing', 'swelling', 'anaphylaxis'],
-      },
-      'peanut': {
-        'level': 'severe',
-        'symptoms': ['difficulty breathing', 'swelling', 'anaphylaxis'],
-      },
-      'nuts': {
-        'level': 'moderate',
-        'symptoms': ['throat swelling', 'hives', 'difficulty breathing'],
-      },
-      'wheat': {
-        'level': 'moderate',
-        'symptoms': ['bloating', 'abdominal pain', 'fatigue'],
-      },
-      'gluten': {
-        'level': 'moderate',
-        'symptoms': ['bloating', 'abdominal pain', 'fatigue'],
-      },
-      'soy': {
-        'level': 'mild',
-        'symptoms': ['mild nausea', 'skin irritation'],
-      },
-      'fish': {
-        'level': 'severe',
-        'symptoms': ['hives', 'swelling', 'difficulty breathing'],
-      },
-      'shellfish': {
-        'level': 'severe',
-        'symptoms': ['hives', 'swelling', 'difficulty breathing'],
-      },
-      'sesame': {
-        'level': 'mild',
-        'symptoms': ['mild skin reaction', 'digestive discomfort'],
-      },
-    };
+  Future<void> _updateAllergensWithAI() async {
+    try {
+      final response = await _analyzeIngredientsWithAI(currentIngredients);
 
-    List<AllergenInfo> detectedAllergens = [];
+      if (response != null) {
+        List<AllergenInfo> detectedAllergens = [];
 
-    for (String ingredient in currentIngredients) {
-      String lowerIngredient = ingredient.toLowerCase();
+        // Parse AI response
+        final allergens = response['allergens'] as List<dynamic>? ?? [];
 
-      for (String allergen in allergenMap.keys) {
-        if (lowerIngredient.contains(allergen)) {
-          bool alreadyExists = detectedAllergens.any(
-            (a) => a.name.toLowerCase() == allergen,
+        for (var allergenData in allergens) {
+          final allergen = allergenData as Map<String, dynamic>;
+
+          detectedAllergens.add(
+            AllergenInfo(
+              name: allergen['name'] ?? 'Unknown',
+              riskLevel:
+                  allergen['severity']?.toString().toLowerCase() ?? 'mild',
+              symptoms: List<String>.from(allergen['symptoms'] ?? []),
+            ),
           );
+        }
 
-          if (!alreadyExists) {
-            detectedAllergens.add(
-              AllergenInfo(
-                name: allergen.capitalize(),
-                riskLevel: allergenMap[allergen]!['level'],
-                symptoms: allergenMap[allergen]!['symptoms'],
-              ),
+        setState(() {
+          currentAllergens = detectedAllergens;
+        });
+      }
+    } catch (e) {
+      print('Error updating allergens with AI: $e');
+      // Fallback to empty list if AI fails
+      setState(() {
+        currentAllergens = [];
+      });
+    }
+  }
+
+  Future<Map<String, dynamic>?> _analyzeIngredientsWithAI(
+    List<String> ingredients,
+  ) async {
+    try {
+      final prompt = '''
+Analyze the following food ingredients and identify any potential allergens. Consider both common names and technical/scientific terms (e.g., albumin for egg, casein for milk, etc.).
+
+Ingredients: ${ingredients.join(', ')}
+
+Please provide a JSON response with the following structure:
+{
+  "allergens": [
+    {
+      "name": "allergen name",
+      "severity": "severe|moderate|mild",
+      "symptoms": ["symptom1", "symptom2", "symptom3"],
+      "technical_terms": ["term1", "term2"],
+      "found_in_ingredients": ["ingredient that contains this allergen"]
+    }
+  ]
+}
+
+Severity levels:
+- severe: Life-threatening allergens (peanuts, tree nuts, shellfish, fish, eggs, milk/dairy)
+- moderate: Common allergens with significant reactions (wheat/gluten, soy)
+- mild: Less severe but notable allergens (sesame, sulfites)
+
+Include technical terms that might be used instead of common names (e.g., albumin, ovalbumin for eggs; casein, whey, lactose for dairy; gluten, wheat protein for wheat).
+
+Only return the JSON object, no additional text.
+''';
+
+      final requestBody = {
+        'contents': [
+          {
+            'parts': [
+              {'text': prompt},
+            ],
+          },
+        ],
+        'generationConfig': {
+          'temperature': 0.1,
+          'topK': 1,
+          'topP': 1,
+          'maxOutputTokens': 2048,
+        },
+      };
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl?key=$_apiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final content =
+            data['candidates']?[0]?['content']?['parts']?[0]?['text'];
+
+        if (content != null) {
+          // Clean the response to extract JSON
+          String cleanedContent = content.toString().trim();
+          if (cleanedContent.startsWith('```json')) {
+            cleanedContent = cleanedContent.substring(7);
+          }
+          if (cleanedContent.endsWith('```')) {
+            cleanedContent = cleanedContent.substring(
+              0,
+              cleanedContent.length - 3,
             );
           }
+
+          return json.decode(cleanedContent);
         }
+      } else {
+        print('AI API Error: ${response.statusCode} - ${response.body}');
       }
+    } catch (e) {
+      print('Error calling AI API: $e');
     }
 
-    setState(() {
-      currentAllergens = detectedAllergens;
-    });
+    return null;
   }
 
   void _addIngredient() {
@@ -204,37 +243,56 @@ class _ResultScreenState extends State<ResultScreen>
   }
 
   Color _getIngredientColor(String ingredient) {
-    String lowerIngredient = ingredient.toLowerCase();
-
-    // Check severe allergens (red)
-    List<String> severeAllergens = [
-      'milk',
-      'dairy',
-      'eggs',
-      'egg',
-      'peanuts',
-      'peanut',
-      'fish',
-      'shellfish',
-    ];
-    for (String allergen in severeAllergens) {
-      if (lowerIngredient.contains(allergen)) return Colors.red;
-    }
-
-    // Check moderate allergens (yellow)
-    List<String> moderateAllergens = ['nuts', 'wheat', 'gluten'];
-    for (String allergen in moderateAllergens) {
-      if (lowerIngredient.contains(allergen)) return Colors.orange;
-    }
-
-    // Check mild allergens (green)
-    List<String> mildAllergens = ['soy', 'sesame'];
-    for (String allergen in mildAllergens) {
-      if (lowerIngredient.contains(allergen)) return Colors.green;
+    // Check if this ingredient is flagged by any allergen
+    for (var allergen in currentAllergens) {
+      // Check if this ingredient contains allergen terms (including technical terms)
+      if (_isIngredientAllergenic(ingredient, allergen)) {
+        switch (allergen.riskLevel.toLowerCase()) {
+          case 'severe':
+            return Colors.red;
+          case 'moderate':
+            return Colors.orange;
+          case 'mild':
+            return Colors.green;
+          default:
+            return Colors.grey;
+        }
+      }
     }
 
     // Safe ingredient (grey)
     return Colors.grey;
+  }
+
+  bool _isIngredientAllergenic(String ingredient, AllergenInfo allergen) {
+    String lowerIngredient = ingredient.toLowerCase();
+    String lowerAllergenName = allergen.name.toLowerCase();
+
+    // Check direct name match
+    if (lowerIngredient.contains(lowerAllergenName)) {
+      return true;
+    }
+
+    // Check common technical terms
+    Map<String, List<String>> technicalTerms = {
+      'egg': ['albumin', 'ovalbumin', 'ovomucin', 'ovomucoid', 'lysozyme'],
+      'milk': ['casein', 'whey', 'lactose', 'lactalbumin', 'lactoglobulin'],
+      'dairy': ['casein', 'whey', 'lactose', 'lactalbumin', 'lactoglobulin'],
+      'wheat': ['gluten', 'gliadin', 'glutenin', 'wheat protein', 'triticum'],
+      'soy': ['lecithin', 'tofu', 'tempeh', 'miso', 'glycine max'],
+      'peanut': ['arachis', 'groundnut', 'arachis hypogaea'],
+      'shellfish': ['crustacean', 'mollusc', 'chitin'],
+      'fish': ['anchovy', 'sardine', 'tuna', 'salmon', 'cod'],
+    };
+
+    List<String> terms = technicalTerms[lowerAllergenName] ?? [];
+    for (String term in terms) {
+      if (lowerIngredient.contains(term)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @override
@@ -590,10 +648,7 @@ class _ResultScreenState extends State<ResultScreen>
           Container(
             width: 400,
             height: 100,
-            padding: EdgeInsets.symmetric(
-              horizontal: 20,
-              vertical: 16,
-            ), // Increased padding
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.05),
               borderRadius: BorderRadius.circular(12),
@@ -662,7 +717,7 @@ class _ResultScreenState extends State<ResultScreen>
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    // Simplified ingredient chips
+                    // AI-powered ingredient chips
                     for (int i = 0; i < currentIngredients.length; i++)
                       _buildIngredientChip(currentIngredients[i], i),
 
@@ -781,7 +836,7 @@ class _ResultScreenState extends State<ResultScreen>
       onTap: () {
         showModalBottomSheet(
           context: context,
-          isScrollControlled: true, // optional: allows full height
+          isScrollControlled: true,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),

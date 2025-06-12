@@ -6,6 +6,7 @@ import 'package:allergen/screens/homescreen.dart';
 import 'package:allergen/screens/result_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:camera/camera.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -24,6 +25,13 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   late AnimationController _animationController;
   late Animation<double> _animation;
 
+  // Camera related variables
+  CameraController? _cameraController;
+  List<CameraDescription>? _cameras;
+  bool _isCameraInitialized = false;
+  FlashMode _flashMode = FlashMode.auto;
+  bool _isRearCamera = true;
+
   File? _image;
   final picker = ImagePicker();
   bool loading = false;
@@ -37,6 +45,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   void initState() {
     super.initState();
     textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    _initializeCamera();
 
     _animationController = AnimationController(
       duration: const Duration(seconds: 2),
@@ -48,11 +57,109 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     _animationController.repeat(reverse: true);
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    textRecognizer?.close();
-    super.dispose();
+  Future<void> _initializeCamera() async {
+    try {
+      _cameras = await availableCameras();
+      if (_cameras != null && _cameras!.isNotEmpty) {
+        _cameraController = CameraController(
+          _cameras![0], // Use rear camera by default
+          ResolutionPreset.high,
+          enableAudio: false,
+        );
+
+        await _cameraController!.initialize();
+        setState(() {
+          _isCameraInitialized = true;
+        });
+      }
+    } catch (e) {
+      print('Error initializing camera: $e');
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (_cameras == null || _cameras!.length < 2) return;
+
+    setState(() {
+      _isRearCamera = !_isRearCamera;
+      _isCameraInitialized = false;
+    });
+
+    await _cameraController?.dispose();
+
+    _cameraController = CameraController(
+      _isRearCamera ? _cameras![0] : _cameras![1],
+      ResolutionPreset.high,
+      enableAudio: false,
+    );
+
+    try {
+      await _cameraController!.initialize();
+      setState(() {
+        _isCameraInitialized = true;
+      });
+    } catch (e) {
+      print('Error switching camera: $e');
+    }
+  }
+
+  Future<void> _toggleFlash() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized)
+      return;
+
+    try {
+      switch (_flashMode) {
+        case FlashMode.auto:
+          _flashMode = FlashMode.always;
+          break;
+        case FlashMode.always:
+          _flashMode = FlashMode.off;
+          break;
+        case FlashMode.off:
+          _flashMode = FlashMode.auto;
+          break;
+        default:
+          _flashMode = FlashMode.auto;
+      }
+
+      await _cameraController!.setFlashMode(_flashMode);
+      setState(() {});
+    } catch (e) {
+      print('Error toggling flash: $e');
+    }
+  }
+
+  Future<void> _captureImage() async {
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized ||
+        loading) {
+      return;
+    }
+
+    try {
+      setState(() {
+        loading = true;
+      });
+
+      final XFile capturedImage = await _cameraController!.takePicture();
+      final File imageFile = File(capturedImage.path);
+
+      setState(() {
+        _image = imageFile;
+      });
+
+      await analyzeImage(imageFile);
+    } catch (e) {
+      setState(() {
+        loading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error capturing image: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> pickImage(ImageSource source) async {
@@ -79,6 +186,14 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
         ),
       );
     }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _cameraController?.dispose();
+    textRecognizer?.close();
+    super.dispose();
   }
 
   Future<void> analyzeImage(File imageFile) async {
@@ -256,7 +371,8 @@ Your task is to ensure the output helps users easily understand potential allerg
     } catch (e) {
       setState(() {
         dishName = 'Analysis Complete';
-        description = response;
+        description:
+        response;
         ingredients = ['Unable to parse ingredients'];
         allergens = [];
         loading = false;
@@ -364,9 +480,10 @@ Risk levels: "severe", "moderate", "mild", or "safe"
             title: const Text('How to Use'),
             content: const Text(
               '1. Point your camera at the food or select from gallery\n'
-              '2. Use the center button to analyze the food\n'
-              '3. View results with allergen information\n'
-              '4. Check ingredients and risk levels',
+              '2. Use the center button to capture and analyze the food\n'
+              '3. Use flash button to toggle flash modes\n'
+              '4. View results with allergen information\n'
+              '5. Check ingredients and risk levels',
             ),
             actions: [
               TextButton(
@@ -376,6 +493,19 @@ Risk levels: "severe", "moderate", "mild", or "safe"
             ],
           ),
     );
+  }
+
+  IconData _getFlashIcon() {
+    switch (_flashMode) {
+      case FlashMode.auto:
+        return Icons.flash_auto;
+      case FlashMode.always:
+        return Icons.flash_on;
+      case FlashMode.off:
+        return Icons.flash_off;
+      default:
+        return Icons.flash_auto;
+    }
   }
 
   @override
@@ -403,38 +533,25 @@ Risk levels: "severe", "moderate", "mild", or "safe"
       ),
       body: Stack(
         children: [
-          // Main image display area
+          // Camera preview or captured image
           Positioned.fill(
             child:
                 _image != null
                     ? Image.file(_image!, fit: BoxFit.cover)
+                    : _isCameraInitialized
+                    ? CameraPreview(_cameraController!)
                     : Container(
                       color: Colors.black,
                       child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.camera_alt_outlined,
-                              size: 80,
-                              color: Colors.white54,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Ready to scan food',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF00BCD4),
                         ),
                       ),
                     ),
           ),
 
-          // Scanner overlay when no image is selected
-          if (_image == null)
+          // Scanner overlay when camera is active and no image is captured
+          if (_image == null && _isCameraInitialized)
             Center(child: ScannerOverlay(animation: _animation)),
 
           // Loading overlay
@@ -456,29 +573,62 @@ Risk levels: "severe", "moderate", "mild", or "safe"
               ),
             ),
 
-          // Top controls (gallery and flash placeholders)
+          // Camera controls at bottom
           Positioned(
-            bottom: 100,
-            left: 50,
-            child: IconButton(
-              onPressed: () => pickImage(ImageSource.gallery),
-              icon: const Icon(Icons.photo_library, color: Colors.white),
-            ),
-          ),
-
-          Positioned(
-            bottom: 100,
-            right: 50,
-            child: IconButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Flash not available for image analysis'),
-                    backgroundColor: Color(0xFF00BCD4),
+            bottom: 120,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // Gallery button
+                IconButton(
+                  onPressed: () => pickImage(ImageSource.gallery),
+                  icon: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: const Icon(
+                      Icons.photo_library,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
-                );
-              },
-              icon: const Icon(Icons.flash_auto, color: Colors.white),
+                ),
+
+                // Flash button
+                IconButton(
+                  onPressed: _toggleFlash,
+                  icon: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Icon(_getFlashIcon(), color: Colors.white, size: 28),
+                  ),
+                ),
+
+                // Camera switch button (only show if multiple cameras available)
+                if (_cameras != null && _cameras!.length > 1)
+                  IconButton(
+                    onPressed: _switchCamera,
+                    icon: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: const Icon(
+                        Icons.flip_camera_ios,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
 
@@ -542,7 +692,7 @@ Risk levels: "severe", "moderate", "mild", or "safe"
                   ),
                 ),
 
-                // Elevated center scan button
+                // Elevated center capture button
                 Positioned(
                   top: -20,
                   left: 0,
@@ -564,15 +714,18 @@ Risk levels: "severe", "moderate", "mild", or "safe"
                         ],
                       ),
                       child: GestureDetector(
-                        child: Image.asset(
-                          width: 24,
-                          height: 24,
-                          'assets/navigation/scan_active.png',
-                        ),
-                        onTap:
+                        child:
                             loading
-                                ? null
-                                : () => pickImage(ImageSource.camera),
+                                ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                )
+                                : Image.asset(
+                                  width: 24,
+                                  height: 24,
+                                  'assets/navigation/scan_active.png',
+                                ),
+                        onTap: loading ? null : _captureImage,
                       ),
                     ),
                   ),
@@ -699,7 +852,7 @@ class ScannerOverlay extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
-                  'Position your food within the frame',
+                  'Position your food within the frame and tap to capture',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
