@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:allergen/screens/result_screen.dart';
+
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/homescreen.dart';
+import 'package:allergen/screens/result_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';

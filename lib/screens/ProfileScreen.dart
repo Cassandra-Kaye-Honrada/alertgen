@@ -1,6 +1,11 @@
+import 'package:allergen/screens/login.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'AllergenProfileScreen.dart';
 
 class UserProfile extends StatefulWidget {
   const UserProfile({Key? key}) : super(key: key);
@@ -11,6 +16,70 @@ class UserProfile extends StatefulWidget {
 
 class _UserProfileState extends State<UserProfile> {
   int _currentIndex = 2; // Profile is active
+  String username = 'Loading...';
+  int allergenCount = 0;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    await Future.wait([fetchUsername(), loadAllergenCount()]);
+    setState(() {
+      isLoading = false;
+    });
+  }
+
+  Future<void> fetchUsername() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        DocumentSnapshot userDoc =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get();
+
+        if (userDoc.exists) {
+          setState(() {
+            username = userDoc['username'] ?? 'User';
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching username: $e');
+      setState(() {
+        username = 'User';
+      });
+    }
+  }
+
+  Future<void> loadAllergenCount() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        QuerySnapshot profileSnapshot =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('profile')
+                .where('type', isEqualTo: 'allergen')
+                .get();
+
+        setState(() {
+          allergenCount = profileSnapshot.docs.length;
+        });
+      }
+    } catch (e) {
+      print('Error loading allergen count: $e');
+      setState(() {
+        allergenCount = 0;
+      });
+    }
+  }
 
   void _scanAction() {
     // Handle scan action
@@ -21,320 +90,441 @@ class _UserProfileState extends State<UserProfile> {
     );
   }
 
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Log out',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF374151),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          content: const Text(
+            'Are you sure you want to log out?',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF6B7280),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Close dialog
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                        side: const BorderSide(color: Color(0xFF1AA2CC)),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF1AA2CC),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Close dialog
+                      _performLogout();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1AA2CC),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yes, Log out',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _performLogout() {
+    // Add your logout logic here
+    // For example: clear user data, tokens, etc.
+    print('User logged out');
+
+    // Navigate to login screen or initial screen
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => LoginScreen()));
+
+    // For now, just show a message
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Logged out successfully',
+          style: TextStyle(fontFamily: 'Poppins'),
+        ),
+        backgroundColor: Color(0xFF1AA2CC),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Main content - Use Expanded instead of Stack/Positioned
           Expanded(
-            child: SafeArea(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Container(
-                  color: AppColors.primaryColor3,
-                  child: Column(
-                    children: [
-                      // Header section with profile
-                      Padding(
-                        padding: const EdgeInsets.only(top: 40),
-                        child: Column(
-                          children: [
-                            // Profile title
-                            const Text(
-                              'Profile',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 28,
-                                fontFamily: 'Inter',
-                                fontWeight: FontWeight.w700,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 20),
-                            // Profile image
-                            Container(
-                              width: 120,
-                              height: 120,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.2),
-                                  width: 3,
-                                ),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(60),
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white24,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.person,
-                                    size: 60,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 15),
-                          ],
-                        ),
-                      ),
-                      // White content section
-                      Container(
-                        width: double.infinity,
-                        // Remove constraints that might cause layout issues
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(28),
-                            topRight: Radius.circular(28),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Container(
+                color: AppColors.primaryColor3,
+                child: Stack(
+                  children: [
+                    Column(
+                      children: [
+                        // Header section with profile
+                        Padding(
+                          padding: const EdgeInsets.only(top: 40),
                           child: Column(
                             children: [
-                              const SizedBox(height: 20),
-                              // User name
+                              // Profile title
                               const Text(
-                                'lorem ipsum',
+                                'Profile',
                                 style: TextStyle(
-                                  color: Color(0xFF1AA2CC),
-                                  fontSize: 26,
+                                  color: Colors.white,
+                                  fontSize: 28,
                                   fontFamily: 'Poppins',
                                   fontWeight: FontWeight.w700,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 20),
-                              // Stats section
-                              Container(
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF1AA2CC),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 30,
-                                  vertical: 20,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    // Allergen section
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          Container(
-                                            width: 40,
-                                            height: 40,
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withOpacity(
-                                                0.2,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: const Icon(
-                                              Icons.warning_amber_rounded,
-                                              color: Colors.white,
-                                              size: 24,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'ALLERGEN',
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(
-                                                0.7,
-                                              ),
-                                              fontSize: 12,
-                                              fontFamily: 'Inter',
-                                              fontWeight: FontWeight.w500,
-                                              letterSpacing: 0.5,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                          const Text(
-                                            '3',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 24,
-                                              fontFamily: 'Inter',
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    // Divider
-                                    Container(
-                                      width: 1,
-                                      height: 60,
-                                      color: Colors.white.withOpacity(0.3),
-                                    ),
-                                    // Scan history section
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          Container(
-                                            width: 40,
-                                            height: 40,
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withOpacity(
-                                                0.2,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: const Icon(
-                                              Icons.history,
-                                              color: Colors.white,
-                                              size: 24,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'SCAN HISTORY',
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(
-                                                0.7,
-                                              ),
-                                              fontSize: 12,
-                                              fontFamily: 'Inter',
-                                              fontWeight: FontWeight.w500,
-                                              letterSpacing: 0.5,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                          const Text(
-                                            '10',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 24,
-                                              fontFamily: 'Inter',
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              // Settings list
-                              Column(
-                                children: [
-                                  // First settings group
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFFE5E7EB),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        _buildSettingItem(
-                                          icon: Icons.person_outline,
-                                          label: 'Personal Details',
-                                          showBorder: true,
-                                        ),
-                                        _buildSettingItem(
-                                          icon: Icons.local_hospital_outlined,
-                                          label: 'Allergen Profile',
-                                          showBorder: true,
-                                        ),
-                                        _buildSettingItem(
-                                          icon: Icons.history,
-                                          label: 'Scan History',
-                                          showBorder: false,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // Second settings group
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFFE5E7EB),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        _buildSettingItem(
-                                          icon: Icons.info_outline,
-                                          label: 'About',
-                                          showBorder: true,
-                                        ),
-                                        _buildSettingItem(
-                                          icon: Icons.help_center_outlined,
-                                          label: 'Help Center',
-                                          showBorder: false,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // Privacy
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFFE5E7EB),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: _buildSettingItem(
-                                      icon: Icons.shield_outlined,
-                                      label: 'Privacy',
-                                      showBorder: false,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // Logout
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFFE5E7EB),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: _buildSettingItem(
-                                      icon: Icons.logout,
-                                      label: 'Log out',
-                                      showBorder: false,
-                                      textColor: const Color(0xFFEF4444),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                    height: 120,
-                                  ), // Extra space for bottom navigation
-                                ],
-                              ),
+                              const SizedBox(height: 75),
                             ],
                           ),
                         ),
+                        // White content section
+                        Container(
+                          width: double.infinity,
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(28),
+                              topRight: Radius.circular(28),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 50),
+                                // User name - now displays fetched username
+                                Text(
+                                  username,
+                                  style: const TextStyle(
+                                    color: AppColors.primaryColor3,
+                                    fontSize: 26,
+                                    fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 20),
+                                // Stats section
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1AA2CC),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 30,
+                                    vertical: 20,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      // Allergen section - now displays actual count
+                                      Expanded(
+                                        child: Column(
+                                          children: [
+                                            Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(
+                                                  0.2,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              child: const Icon(
+                                                Icons.warning_amber_rounded,
+                                                color: Colors.white,
+                                                size: 24,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'ALLERGEN',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.7,
+                                                ),
+                                                fontSize: 12,
+                                                fontFamily: 'Poppins',
+                                                fontWeight: FontWeight.w500,
+                                                letterSpacing: 0.5,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                            Text(
+                                              isLoading
+                                                  ? '...'
+                                                  : '$allergenCount',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 24,
+                                                fontFamily: 'Poppins',
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Divider
+                                      Container(
+                                        width: 1,
+                                        height: 60,
+                                        color: Colors.white.withOpacity(0.3),
+                                      ),
+                                      // Scan history section
+                                      Expanded(
+                                        child: Column(
+                                          children: [
+                                            Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(
+                                                  0.2,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              child: const Icon(
+                                                Icons.history,
+                                                color: Colors.white,
+                                                size: 24,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'SCAN HISTORY',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.7,
+                                                ),
+                                                fontSize: 12,
+                                                fontFamily: 'Poppins',
+                                                fontWeight: FontWeight.w500,
+                                                letterSpacing: 0.5,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                            const Text(
+                                              '10',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 24,
+                                                fontFamily: 'Poppins',
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+                                // Settings list
+                                Column(
+                                  children: [
+                                    // First settings group
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5E7EB),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          _buildSettingItem(
+                                            icon: Icons.person_outline,
+                                            label: 'Personal Details',
+                                            showBorder: true,
+                                          ),
+                                          _buildSettingItem(
+                                            icon: Icons.local_hospital_outlined,
+                                            label: 'Allergen Profile',
+                                            showBorder: true,
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder:
+                                                      (_) =>
+                                                          AllergenProfileScreen(),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          _buildSettingItem(
+                                            icon: Icons.history,
+                                            label: 'Scan History',
+                                            showBorder: false,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // Second settings group
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5E7EB),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          _buildSettingItem(
+                                            icon: Icons.info_outline,
+                                            label: 'About',
+                                            showBorder: true,
+                                          ),
+                                          _buildSettingItem(
+                                            icon: Icons.help_center_outlined,
+                                            label: 'Help Center',
+                                            showBorder: false,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // Privacy
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5E7EB),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: _buildSettingItem(
+                                        icon: Icons.shield_outlined,
+                                        label: 'Privacy',
+                                        showBorder: false,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // Logout
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5E7EB),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: _buildSettingItem(
+                                        icon: Icons.logout,
+                                        label: 'Log out',
+                                        showBorder: false,
+                                        textColor: const Color(0xFFEF4444),
+                                        onTap: _showLogoutDialog,
+                                      ),
+                                    ),
+                                    const SizedBox(
+                                      height: 120,
+                                    ), // Extra space for bottom navigation
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Positioned(
+                      top: 100,
+                      left: MediaQuery.sizeOf(context).width / 2 - 60,
+                      child: Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(60),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: AppColors.primaryColor3,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -344,7 +534,6 @@ class _UserProfileState extends State<UserProfile> {
             margin: const EdgeInsets.all(20),
             height: 80,
             decoration: BoxDecoration(
-              //  color: Colors.white,
               color: Colors.white,
               borderRadius: BorderRadius.circular(40),
               boxShadow: [
@@ -431,6 +620,7 @@ class _UserProfileState extends State<UserProfile> {
     required String label,
     required bool showBorder,
     Color? textColor,
+    VoidCallback? onTap,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -442,10 +632,10 @@ class _UserProfileState extends State<UserProfile> {
                 : null,
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
         leading: Container(
-          width: 40,
-          height: 40,
+          width: 30,
+          height: 30,
           decoration: BoxDecoration(
             color: const Color(0xFFF3F4F6),
             borderRadius: BorderRadius.circular(12),
@@ -460,7 +650,7 @@ class _UserProfileState extends State<UserProfile> {
           label,
           style: TextStyle(
             color: textColor ?? const Color(0xFF374151),
-            fontSize: 16,
+            fontSize: 14,
             fontFamily: 'Poppins',
             fontWeight: FontWeight.w500,
           ),
@@ -470,10 +660,12 @@ class _UserProfileState extends State<UserProfile> {
           size: 20,
           color: Color(0xFF9CA3AF),
         ),
-        onTap: () {
-          // Handle navigation
-          print('Tapped: $label');
-        },
+        onTap:
+            onTap ??
+            () {
+              // Handle navigation
+              print('Tapped: $label');
+            },
       ),
     );
   }
