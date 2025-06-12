@@ -1,3 +1,4 @@
+import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/homescreen.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -327,7 +328,11 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
 
                       // Profile/User button (right side)
                       GestureDetector(
-                        onTap: () {},
+                        onTap:
+                            () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => UserProfile()),
+                            ),
                         child: Image.asset(
                           width: 24,
                           height: 24,
