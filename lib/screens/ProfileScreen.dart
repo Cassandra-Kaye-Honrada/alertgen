@@ -1,4 +1,5 @@
 import 'package:allergen/screens/scan_screen.dart';
+import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 
 class UserProfile extends StatefulWidget {
@@ -23,65 +24,69 @@ class _UserProfileState extends State<UserProfile> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1AA2CC),
-      body: Stack(
+      backgroundColor: Colors.white,
+      body: Column(
         children: [
-          SafeArea(
-            child: SingleChildScrollView(
-              child: Container(
-                width: double.infinity,
-                child: Column(
-                  children: [
-                    // Header section with profile
-                    Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: Column(
-                        children: [
-                          // Profile title
-                          const Text(
-                            'Profile',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.w700,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          // Profile image
-                          Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.2),
-                                width: 3,
+          // Main content - Use Expanded instead of Stack/Positioned
+          Expanded(
+            child: SafeArea(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Container(
+                  color: AppColors.primaryColor3,
+                  child: Column(
+                    children: [
+                      // Header section with profile
+                      Padding(
+                        padding: const EdgeInsets.only(top: 40),
+                        child: Column(
+                          children: [
+                            // Profile title
+                            const Text(
+                              'Profile',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 28,
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w700,
                               ),
+                              textAlign: TextAlign.center,
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(60),
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.white24,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.person,
-                                  size: 60,
-                                  color: Colors.white,
+                            const SizedBox(height: 20),
+                            // Profile image
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.2),
+                                  width: 3,
                                 ),
                               ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(60),
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white24,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.person,
+                                    size: 60,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 15),
-                        ],
+                            const SizedBox(height: 15),
+                          ],
+                        ),
                       ),
-                    ),
-                    // White content section
-                    Expanded(
-                      child: Container(
+                      // White content section
+                      Container(
+                        width: double.infinity,
+                        // Remove constraints that might cause layout issues
                         decoration: const BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.only(
@@ -226,208 +231,194 @@ class _UserProfileState extends State<UserProfile> {
                               ),
                               const SizedBox(height: 24),
                               // Settings list
-                              Expanded(
-                                child: SingleChildScrollView(
-                                  child: Column(
-                                    children: [
-                                      // First settings group
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFE5E7EB),
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          children: [
-                                            _buildSettingItem(
-                                              icon: Icons.person_outline,
-                                              label: 'Personal Details',
-                                              showBorder: true,
-                                            ),
-                                            _buildSettingItem(
-                                              icon:
-                                                  Icons.local_hospital_outlined,
-                                              label: 'Allergen Profile',
-                                              showBorder: true,
-                                            ),
-                                            _buildSettingItem(
-                                              icon: Icons.history,
-                                              label: 'Scan History',
-                                              showBorder: false,
-                                            ),
-                                          ],
-                                        ),
+                              Column(
+                                children: [
+                                  // First settings group
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                        width: 1,
                                       ),
-                                      const SizedBox(height: 16),
-                                      // Second settings group
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFE5E7EB),
-                                            width: 1,
-                                          ),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        _buildSettingItem(
+                                          icon: Icons.person_outline,
+                                          label: 'Personal Details',
+                                          showBorder: true,
                                         ),
-                                        child: Column(
-                                          children: [
-                                            _buildSettingItem(
-                                              icon: Icons.info_outline,
-                                              label: 'About',
-                                              showBorder: true,
-                                            ),
-                                            _buildSettingItem(
-                                              icon: Icons.help_center_outlined,
-                                              label: 'Help Center',
-                                              showBorder: false,
-                                            ),
-                                          ],
+                                        _buildSettingItem(
+                                          icon: Icons.local_hospital_outlined,
+                                          label: 'Allergen Profile',
+                                          showBorder: true,
                                         ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      // Privacy
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFE5E7EB),
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: _buildSettingItem(
-                                          icon: Icons.shield_outlined,
-                                          label: 'Privacy',
+                                        _buildSettingItem(
+                                          icon: Icons.history,
+                                          label: 'Scan History',
                                           showBorder: false,
                                         ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      // Logout
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFE5E7EB),
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: _buildSettingItem(
-                                          icon: Icons.logout,
-                                          label: 'Log out',
-                                          showBorder: false,
-                                          textColor: const Color(0xFFEF4444),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 40),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 16),
+                                  // Second settings group
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        _buildSettingItem(
+                                          icon: Icons.info_outline,
+                                          label: 'About',
+                                          showBorder: true,
+                                        ),
+                                        _buildSettingItem(
+                                          icon: Icons.help_center_outlined,
+                                          label: 'Help Center',
+                                          showBorder: false,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // Privacy
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: _buildSettingItem(
+                                      icon: Icons.shield_outlined,
+                                      label: 'Privacy',
+                                      showBorder: false,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // Logout
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: _buildSettingItem(
+                                      icon: Icons.logout,
+                                      label: 'Log out',
+                                      showBorder: false,
+                                      textColor: const Color(0xFFEF4444),
+                                    ),
+                                  ),
+                                  const SizedBox(
+                                    height: 120,
+                                  ), // Extra space for bottom navigation
+                                ],
                               ),
                             ],
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-          // Bottom Navigation
-          Positioned(
-            bottom: 20,
-            left: 20,
-            right: 20,
-            child: Container(
-              height: 80,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(40),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Home button (left side)
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _currentIndex = 0;
-                      });
-                      Navigator.pop(context);
+          // Bottom Navigation - Fixed positioning
+          Container(
+            margin: const EdgeInsets.all(20),
+            height: 80,
+            decoration: BoxDecoration(
+              //  color: Colors.white,
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(40),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // Home button (left side)
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _currentIndex = 0;
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: Image.asset(
+                    'assets/navigation/menu_inactive.png',
+                    width: 24,
+                    height: 24,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.home,
+                        color: Color(0xFF64748B),
+                        size: 24,
+                      );
                     },
-                    child: Image.asset(
-                      width: 24,
-                      height: 24,
-                      'assets/navigation/menu_active.png', // Active since we're on home
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(
-                          Icons.home,
-                          color: Color(0xFF00BCD4),
-                          size: 24,
-                        );
-                      },
-                    ),
                   ),
+                ),
 
-                  // Scan button (center)
-                  GestureDetector(
-                    onTap: _scanAction,
-                    child: Image.asset(
-                      width: 24,
-                      height: 24,
-                      'assets/navigation/scan_inactive.png',
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(
-                          Icons.camera_alt,
-                          color: Color(0xFF64748B),
-                          size: 24,
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Profile/User button (right side)
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _currentIndex = 2;
-                      });
+                // Scan button (center)
+                GestureDetector(
+                  onTap: _scanAction,
+                  child: Image.asset(
+                    'assets/navigation/scan_inactive.png',
+                    width: 24,
+                    height: 24,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.camera_alt,
+                        color: Color(0xFF64748B),
+                        size: 24,
+                      );
                     },
-                    child: Image.asset(
-                      width: 24,
-                      height: 24,
-                      'assets/navigation/Profile_inactive.png',
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(
-                          Icons.person,
-                          color: Color(0xFF64748B),
-                          size: 24,
-                        );
-                      },
-                    ),
                   ),
-                ],
-              ),
+                ),
+
+                // Profile/User button (right side)
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _currentIndex = 2;
+                    });
+                  },
+                  child: Image.asset(
+                    'assets/navigation/profile_active.png',
+                    width: 24,
+                    height: 24,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.person,
+                        color: Color(0xFF00BCD4),
+                        size: 24,
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -474,10 +465,10 @@ class _UserProfileState extends State<UserProfile> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        trailing: Icon(
+        trailing: const Icon(
           Icons.chevron_right,
           size: 20,
-          color: const Color(0xFF9CA3AF),
+          color: Color(0xFF9CA3AF),
         ),
         onTap: () {
           // Handle navigation

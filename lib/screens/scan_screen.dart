@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 import 'dart:convert';
 import 'dart:io';
 import 'package:allergen/screens/result_screen.dart';
+=======
+import 'package:allergen/screens/ProfileScreen.dart';
+>>>>>>> 571adbb8ffa2ef53ce7feee2f9d7a2caaf598d20
 import 'package:allergen/screens/homescreen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -525,7 +529,11 @@ Risk levels: "severe", "moderate", "mild", or "safe"
 
                       // Profile button (right side)
                       GestureDetector(
-                        onTap: () {},
+                        onTap:
+                            () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => UserProfile()),
+                            ),
                         child: Image.asset(
                           width: 24,
                           height: 24,
