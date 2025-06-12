@@ -96,8 +96,9 @@ class _SevereEmergencyPageViewScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.defaultbackground,
       appBar: AppBar(
-        backgroundColor: Color(0xFFF2F9FF),
+        backgroundColor: AppColors.defaultbackground,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(

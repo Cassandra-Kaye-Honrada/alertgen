@@ -1,3 +1,4 @@
+import 'package:allergen/scanHistoryScreen.dart';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/emergencyScreen.dart';
@@ -277,20 +278,24 @@ class _HomescreenState extends State<Homescreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          'Hello, $username!', // Use dynamic username instead of hardcoded 'QWERTY'
+          'Hello, $username!',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
             color: Color(0xFF2D3748),
           ),
         ),
-        Container(
-          padding: EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Color(0xFFE6F7FF),
-            borderRadius: BorderRadius.circular(12),
+        GestureDetector(
+          onTap:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ScanHistoryScreen()),
+              ),
+          child: Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
+            child: Image.asset('assets/images/history.png', height: 30),
           ),
-          child: Icon(Icons.menu, color: Color(0xFF1890FF), size: 24),
         ),
       ],
     );
