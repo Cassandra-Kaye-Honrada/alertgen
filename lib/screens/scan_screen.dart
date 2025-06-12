@@ -1,15 +1,20 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:allergen/screens/result_screen.dart';
 import 'package:allergen/screens/homescreen.dart';
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'dart:io';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
+const apiKey = 'AIzaSyCzyd0ukiEilgPiJ29HNplB2UtWyOKCZkA';
 
 class CameraScannerScreen extends StatefulWidget {
-  const CameraScannerScreen({Key? key}) : super(key: key);
-
   @override
-  State<CameraScannerScreen> createState() => _CameraScannerScreenState();
+  _CameraScannerScreenState createState() => _CameraScannerScreenState();
 }
 
 class _CameraScannerScreenState extends State<CameraScannerScreen>
@@ -17,15 +22,20 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   late AnimationController _animationController;
   late Animation<double> _animation;
 
-  CameraController? _cameraController;
-  List<CameraDescription>? _cameras;
-  bool _isCameraInitialized = false;
-  bool _flashOn = false;
-  bool _isScanning = true;
+  File? _image;
+  final picker = ImagePicker();
+  bool loading = false;
+  TextRecognizer? textRecognizer;
+  String dishName = '';
+  String description = '';
+  List<String> ingredients = [];
+  List<AllergenInfo> allergens = [];
 
   @override
   void initState() {
     super.initState();
+    textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
     _animationController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
@@ -34,161 +44,336 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
     _animationController.repeat(reverse: true);
-    _initializeCamera();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    _cameraController?.dispose();
+    textRecognizer?.close();
     super.dispose();
   }
 
-  Future<void> _initializeCamera() async {
-    final status = await Permission.camera.request();
-    if (status.isDenied) {
-      _showPermissionDialog();
-      return;
-    }
-
-    _cameras = await availableCameras();
-    if (_cameras!.isNotEmpty) {
-      _cameraController = CameraController(
-        _cameras![0],
-        ResolutionPreset.high,
-        enableAudio: false,
+  Future<void> pickImage(ImageSource source) async {
+    try {
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 75,
       );
-
-      try {
-        await _cameraController!.initialize();
-        if (mounted) {
-          setState(() {
-            _isCameraInitialized = true;
-          });
-        }
-      } catch (e) {
-        print('Camera initialization error: $e');
-        _showCameraError();
+      if (pickedFile != null) {
+        setState(() {
+          _image = File(pickedFile.path);
+          loading = true;
+        });
+        await analyzeImage(_image!);
       }
-    }
-  }
-
-  void _showPermissionDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Camera Permission Required'),
-            content: const Text(
-              'This app needs camera access to function properly.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  openAppSettings();
-                },
-                child: const Text('Settings'),
-              ),
-            ],
-          ),
-    );
-  }
-
-  void _showCameraError() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Camera Error'),
-            content: const Text(
-              'Failed to initialize camera. Please try again.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _initializeCamera();
-                },
-                child: const Text('Retry'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Close'),
-              ),
-            ],
-          ),
-    );
-  }
-
-  Future<void> _pickImageFromGallery() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-
-    if (image != null) {
+    } catch (e) {
+      setState(() {
+        loading = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Image selected: ${image.name}'),
-          backgroundColor: const Color(0xFF00BCD4),
+          content: Text('Error picking image: $e'),
+          backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  Future<void> _toggleFlash() async {
-    if (_cameraController != null && _isCameraInitialized) {
-      try {
-        await _cameraController!.setFlashMode(
-          _flashOn ? FlashMode.off : FlashMode.torch,
-        );
-        setState(() {
-          _flashOn = !_flashOn;
-        });
-      } catch (e) {
-        print('Flash toggle error: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to toggle flash'),
-            backgroundColor: Colors.red,
-          ),
-        );
+  Future<void> analyzeImage(File imageFile) async {
+    if (textRecognizer == null) {
+      setState(() {
+        loading = false;
+      });
+      return;
+    }
+
+    try {
+      final inputImage = InputImage.fromFile(imageFile);
+      final recognizedText = await textRecognizer!.processImage(inputImage);
+      final ocrText = recognizedText.text.trim();
+
+      if (ocrText.isNotEmpty) {
+        await analyzeWithText(ocrText, imageFile);
+      } else {
+        await analyzeWithImage(imageFile);
       }
+    } catch (e) {
+      await analyzeWithImage(imageFile);
     }
   }
 
-  Future<void> _takePicture() async {
-    if (_cameraController != null && _isCameraInitialized) {
-      try {
-        final XFile photo = await _cameraController!.takePicture();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Photo saved: ${photo.name}'),
-            backgroundColor: const Color(0xFF00BCD4),
-          ),
-        );
-      } catch (e) {
-        print('Take picture error: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to take picture'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+  Future<void> analyzeWithText(String ocrText, File imageFile) async {
+    if (apiKey == 'YOUR_API_KEY_HERE') {
+      setState(() {
+        loading = false;
+      });
+      return;
+    }
+
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash-preview-04-17',
+        apiKey: apiKey,
+      );
+
+      final prompt = '''
+Analyze this food image and return a JSON response with this exact structure:
+
+{
+  "dishName": "Name of the dish",
+  "description": "Detailed description of the dish",
+  "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
+  "allergens": [
+    {
+      "name": "Milk",
+      "riskLevel": "severe",
+      "symptoms": ["stomach pain", "bloating"]
+    }
+  ]
+}
+
+Risk levels should be: "severe", "moderate", "mild", or "safe"
+
+Common allergens to check for: milk, eggs, fish, shellfish, tree nuts, peanuts, wheat, soy bean, sesame, mustard
+
+If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
+
+- Automatically map them to their corresponding **common allergen** (e.g., albumin → egg, casein → milk).
+- Use the **common allergen name** (not the technical term) in the "name" field of the allergens JSON.
+- Do this mapping even if the term is not in a predefined list — you are responsible for identifying and categorizing such terms accurately.
+
+Your task is to ensure the output helps users easily understand potential allergen risks, even if the ingredients are listed in scientific or technical terms.
+
+OCR text: $ocrText
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      await parseGeminiResponse(response.text ?? '', imageFile);
+    } catch (e) {
+      setState(() {
+        loading = false;
+      });
     }
   }
 
-  void _scanAction() {
-    if (_isCameraInitialized) {
-      _takePicture();
+  Future<void> analyzeWithImage(File imageFile) async {
+    if (apiKey == 'YOUR_API_KEY_HERE') {
+      setState(() {
+        loading = false;
+      });
+      return;
     }
+
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash-preview-04-17',
+        apiKey: apiKey,
+      );
+
+      final imageBytes = await imageFile.readAsBytes();
+
+      final prompt = '''
+Analyze this food image and return a JSON response with this exact structure:
+
+{
+  "dishName": "Name of the dish",
+  "description": "Detailed description of the dish",
+  "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
+  "allergens": [
+    {
+      "name": "Milk",
+      "riskLevel": "severe",
+      "symptoms": ["stomach pain", "bloating"]
+    }
+  ]
+}
+
+Risk levels should be: "severe", "moderate", "mild", or "safe"
+
+Common allergens to check for: milk, eggs, fish, shellfish, tree nuts, peanuts, wheat, soy bean, sesame, mustard
+
+If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
+
+- Automatically map them to their corresponding **common allergen** (e.g., albumin → egg, casein → milk).
+- Use the **common allergen name** (not the technical term) in the "name" field of the allergens JSON.
+- Do this mapping even if the term is not in a predefined list — you are responsible for identifying and categorizing such terms accurately.
+
+Your task is to ensure the output helps users easily understand potential allergen risks, even if the ingredients are listed in scientific or technical terms.
+''';
+
+      final response = await model.generateContent([
+        Content.multi([TextPart(prompt), DataPart('image/jpeg', imageBytes)]),
+      ]);
+
+      await parseGeminiResponse(response.text ?? '', imageFile);
+    } catch (e) {
+      setState(() {
+        loading = false;
+      });
+    }
+  }
+
+  Future<void> parseGeminiResponse(String response, File imageFile) async {
+    try {
+      String cleanResponse = response;
+      if (response.contains('```json')) {
+        cleanResponse = response.split('```json')[1].split('```')[0];
+      } else if (response.contains('```')) {
+        cleanResponse = response.split('```')[1];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+
+      setState(() {
+        dishName = jsonData['dishName'] ?? 'Unknown Dish';
+        description = jsonData['description'] ?? 'No description available';
+        ingredients = List<String>.from(jsonData['ingredients'] ?? []);
+        allergens =
+            (jsonData['allergens'] as List? ?? [])
+                .map((a) => AllergenInfo.fromJson(a))
+                .toList();
+        loading = false;
+      });
+
+      await saveToFirebase(imageFile);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ResultScreen(
+                image: _image!,
+                dishName: dishName,
+                description: description,
+                ingredients: ingredients,
+                allergens: allergens,
+                onIngredientsChanged: updateAllergens,
+              ),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        dishName = 'Analysis Complete';
+        description = response;
+        ingredients = ['Unable to parse ingredients'];
+        allergens = [];
+        loading = false;
+      });
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ResultScreen(
+                image: _image!,
+                dishName: dishName,
+                description: description,
+                ingredients: ingredients,
+                allergens: allergens,
+                onIngredientsChanged: updateAllergens,
+              ),
+        ),
+      );
+    }
+  }
+
+  Future<void> saveToFirebase(File imageFile) async {
+    try {
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('food_images')
+          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      final uploadTask = await storageRef.putFile(imageFile);
+      final imageUrl = await uploadTask.ref.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('food_analysis').add({
+        'dishName': dishName,
+        'description': description,
+        'ingredients': ingredients,
+        'allergens':
+            allergens
+                .map(
+                  (a) => {
+                    'name': a.name,
+                    'riskLevel': a.riskLevel,
+                    'symptoms': a.symptoms,
+                  },
+                )
+                .toList(),
+        'imageUrl': imageUrl,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error saving to Firebase: $e');
+    }
+  }
+
+  Future<void> updateAllergens(List<String> newIngredients) async {
+    final model = GenerativeModel(
+      model: 'gemini-2.5-flash-preview-04-17',
+      apiKey: apiKey,
+    );
+
+    final prompt = '''
+Based on these ingredients, identify potential allergens and return JSON:
+
+{
+  "allergens": [
+    {
+      "name": "Milk",
+      "riskLevel": "severe",
+      "symptoms": ["stomach pain", "bloating"]
+    }
+  ]
+}
+
+Ingredients: ${newIngredients.join(', ')}
+Risk levels: "severe", "moderate", "mild", or "safe"
+''';
+
+    try {
+      final response = await model.generateContent([Content.text(prompt)]);
+      String cleanResponse = response.text ?? '';
+      if (cleanResponse.contains('```json')) {
+        cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+      final newAllergens =
+          (jsonData['allergens'] as List? ?? [])
+              .map((a) => AllergenInfo.fromJson(a))
+              .toList();
+
+      setState(() {
+        ingredients = newIngredients;
+        allergens = newAllergens;
+      });
+    } catch (e) {
+      print('Error updating allergens: $e');
+    }
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('How to Use'),
+            content: const Text(
+              '1. Point your camera at the food or select from gallery\n'
+              '2. Use the center button to analyze the food\n'
+              '3. View results with allergen information\n'
+              '4. Check ingredients and risk levels',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          ),
+    );
   }
 
   @override
@@ -199,7 +384,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
-          'Camera',
+          'Food Scanner',
           style: TextStyle(
             color: Colors.white,
             fontSize: 18,
@@ -207,43 +392,53 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
           ),
         ),
         centerTitle: true,
-
         actions: [
           IconButton(
             icon: const Icon(Icons.help_outline, color: Colors.white),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder:
-                    (context) => AlertDialog(
-                      title: const Text('How to Use'),
-                      content: const Text(
-                        '1. Point your camera at the subject\n'
-                        '2. Use the center button to take a photo\n'
-                        '3. Access gallery to view saved images\n'
-                        '4. Use flash for better lighting',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Got it'),
-                        ),
-                      ],
-                    ),
-              );
-            },
+            onPressed: _showHelpDialog,
           ),
         ],
       ),
       body: Stack(
         children: [
-          // Camera Preview
-          if (_isCameraInitialized && _cameraController != null)
-            Positioned.fill(child: CameraPreview(_cameraController!))
-          else
-            // Loading or error state
+          // Main image display area
+          Positioned.fill(
+            child:
+                _image != null
+                    ? Image.file(_image!, fit: BoxFit.cover)
+                    : Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.camera_alt_outlined,
+                              size: 80,
+                              color: Colors.white54,
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'Ready to scan food',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+          ),
+
+          // Scanner overlay when no image is selected
+          if (_image == null)
+            Center(child: ScannerOverlay(animation: _animation)),
+
+          // Loading overlay
+          if (loading)
             Container(
-              color: Colors.black,
+              color: Colors.black54,
               child: const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -251,7 +446,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
                     CircularProgressIndicator(color: Color(0xFF00BCD4)),
                     SizedBox(height: 16),
                     Text(
-                      'Initializing Camera...',
+                      'Analyzing food...',
                       style: TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ],
@@ -259,30 +454,33 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
               ),
             ),
 
-          // Custom Scanning Overlay
-          if (_isCameraInitialized)
-            Center(child: ScannerOverlay(animation: _animation)),
-
-          // Bottom controls with new design
+          // Top controls (gallery and flash placeholders)
           Positioned(
             bottom: 100,
             left: 50,
-
             child: IconButton(
-              onPressed: _pickImageFromGallery,
-              icon: Icon(Icons.photo_library, color: Colors.white),
+              onPressed: () => pickImage(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library, color: Colors.white),
             ),
           ),
-          // Bottom controls with new design
+
           Positioned(
             bottom: 100,
             right: 50,
-
             child: IconButton(
-              onPressed: _isCameraInitialized ? _toggleFlash : null,
-              icon: Icon(Icons.flash_auto, color: Colors.white),
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Flash not available for image analysis'),
+                    backgroundColor: Color(0xFF00BCD4),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.flash_auto, color: Colors.white),
             ),
           ),
+
+          // Bottom navigation bar
           Positioned(
             bottom: 20,
             left: 20,
@@ -308,7 +506,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // Gallery button (left side)
+                      // Home/Menu button (left side)
                       GestureDetector(
                         onTap:
                             () => Navigator.push(
@@ -325,7 +523,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
                       // Spacer for center button
                       const SizedBox(width: 70),
 
-                      // Profile/User button (right side)
+                      // Profile button (right side)
                       GestureDetector(
                         onTap: () {},
                         child: Image.asset(
@@ -338,6 +536,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
                   ),
                 ),
 
+                // Elevated center scan button
                 Positioned(
                   top: -20,
                   left: 0,
@@ -364,7 +563,10 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
                           height: 24,
                           'assets/navigation/scan_active.png',
                         ),
-                        onTap: () => _isCameraInitialized ? _scanAction : null,
+                        onTap:
+                            loading
+                                ? null
+                                : () => pickImage(ImageSource.camera),
                       ),
                     ),
                   ),
@@ -491,7 +693,7 @@ class ScannerOverlay extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
-                  'Position your subject within the frame',
+                  'Position your food within the frame',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -505,5 +707,44 @@ class ScannerOverlay extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class AllergenInfo {
+  final String name;
+  final String riskLevel;
+  final List<String> symptoms;
+
+  AllergenInfo({
+    required this.name,
+    required this.riskLevel,
+    required this.symptoms,
+  });
+
+  factory AllergenInfo.fromJson(Map<String, dynamic> json) {
+    return AllergenInfo(
+      name: json['name'] ?? '',
+      riskLevel: json['riskLevel'] ?? 'safe',
+      symptoms: List<String>.from(json['symptoms'] ?? []),
+    );
+  }
+
+  Color get color {
+    switch (riskLevel.toLowerCase()) {
+      case 'severe':
+        return Colors.red;
+      case 'moderate':
+        return Colors.orange;
+      case 'mild':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String get iconPath {
+    final firstLetter = name[0].toUpperCase();
+    final rest = name.substring(1).toLowerCase();
+    return 'assets/allergens/$firstLetter$rest.png';
   }
 }

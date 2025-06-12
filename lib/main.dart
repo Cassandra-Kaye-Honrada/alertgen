@@ -1,4 +1,5 @@
 import 'package:allergen/firebase_options.dart';
+import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/screens/splash_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
