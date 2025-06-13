@@ -7,6 +7,9 @@ import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
+import 'AllergenProfileScreen.dart'; // Add this import
 
 class Homescreen extends StatefulWidget {
   @override
@@ -191,6 +194,125 @@ class _HomescreenState extends State<Homescreen> {
         print('Profile navigation error: $e');
       }
     }
+  }
+
+  Widget _buildAllergenGrid() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Allergen icons in a scrollable row with always visible add button
+        SizedBox(
+          height: 80, // Adjust height based on your icon size
+          child: Row(
+            children: [
+              // Scrollable allergen list
+              Expanded(
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: allergens.length,
+                  itemBuilder: (context, index) {
+                    return GestureDetector(
+                      onTap: () => _showAllergenDetails(allergens[index]),
+                      child: _buildAllergenIconWithLabel(allergens[index]),
+                    );
+                  },
+                ),
+              ),
+
+              // Always visible add button (outside the scrollable area)
+              Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: _buildAddAllergenIconWithLabel(),
+              ),
+            ],
+          ),
+        ),
+
+        // Show "more" indicator below if there are many allergens
+        if (allergens.length > 4) ...[
+          SizedBox(height: 8),
+          GestureDetector(
+            onTap: _navigateToProfile,
+            child: Text(
+              'View all allergens',
+              style: TextStyle(
+                color: Colors.blue,
+                fontSize: 12,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+
+        // Severity legend
+        if (allergens.isNotEmpty) ...[
+          SizedBox(height: 16),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSeverityLegendItem('Mild', AppColors.mild),
+                SizedBox(width: 12),
+                _buildSeverityLegendItem('Moderate', AppColors.moderate),
+                SizedBox(width: 12),
+                _buildSeverityLegendItem('Severe', AppColors.dangerAlert),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildEmptyAllergenState() {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Color(0xFFE2E8F0), width: 1),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.add_circle_outline, size: 48, color: AppColors.textGray),
+          SizedBox(height: 12),
+          Text(
+            'No allergens added yet',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textBlack,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Add your allergens to get personalized food safety alerts',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textGray),
+          ),
+          SizedBox(height: 16),
+          ElevatedButton(
+            onPressed:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => UserProfile()),
+                ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: Text('Add Allergens', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _navigateToEmergency() {
@@ -378,7 +500,13 @@ class _HomescreenState extends State<Homescreen> {
                   ),
                   SizedBox(width: 8),
                   GestureDetector(
-                    onTap: _navigateToProfile,
+                    onTap:
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => AllergenProfileScreen(),
+                          ),
+                        ),
                     child: Icon(
                       Icons.edit,
                       size: 16,
@@ -391,121 +519,401 @@ class _HomescreenState extends State<Homescreen> {
         ),
         SizedBox(height: 16),
 
-        // Allergen Icons Row
+        // Enhanced allergen display with tap functionality
         isLoading
             ? Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(),
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
               ),
             )
             : allergens.isEmpty
-            ? Container(
-              padding: EdgeInsets.all(20),
+            ? _buildEmptyAllergenState()
+            : _buildAllergenGrid(),
+      ],
+    );
+  }
+
+  Future<void> _handleRefresh() async {
+    await refreshUserData();
+  }
+
+  // Method to show allergen details dialog
+  void _showAllergenDetails(Map<String, dynamic> allergen) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              _getAllergenIcon(allergen['name']),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  allergen['name'],
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textBlack,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Severity Level',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textGray,
+                ),
+              ),
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: _getSeverityColor(allergen['severity']),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    _getSeverityText(allergen['severity']),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textBlack,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Always carry your prescribed medication and inform others about your allergies.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textGray,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Close', style: TextStyle(color: AppColors.primary)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _navigateToProfile();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text('Edit', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Helper method to get severity text
+  String _getSeverityText(double severity) {
+    if (severity < 0.33) return 'Mild';
+    if (severity < 0.67) return 'Moderate';
+    return 'Severe';
+  }
+
+  // Method to handle scan history navigation with error handling
+  void _navigateToScanHistory() {
+    if (!_isDisposed && mounted) {
+      try {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => ScanHistoryScreen()),
+        ).catchError((error) {
+          print('Navigation error to scan history: $error');
+        });
+      } catch (e) {
+        print('Scan history navigation error: $e');
+      }
+    }
+  }
+
+  // Enhanced method to show snackbar messages
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.dangerAlert : AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // Method to handle network connectivity issues
+  Future<bool> _checkConnectivity() async {
+    try {
+      // Simple connectivity check - you might want to use connectivity_plus package
+      return true; // Placeholder - implement actual connectivity check
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Method to show offline indicator
+  Widget _buildOfflineIndicator() {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(vertical: 8),
+      color: AppColors.dangerAlert,
+      child: Text(
+        'No internet connection',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  // Enhanced error handling for Firestore operations
+  Future<T?> _safeFirestoreOperation<T>(Future<T> operation) async {
+    try {
+      return await operation.timeout(Duration(seconds: 15));
+    } catch (e) {
+      print('Firestore operation failed: $e');
+      if (mounted) {
+        _showSnackBar(
+          'Connection error. Please check your internet.',
+          isError: true,
+        );
+      }
+      return null;
+    }
+  }
+
+  // Method to handle deep links or navigation from notifications
+  void _handleDeepLink(String? route) {
+    if (route == null || !mounted) return;
+
+    switch (route) {
+      case '/profile':
+        _navigateToProfile();
+        break;
+      case '/emergency':
+        _navigateToEmergency();
+        break;
+      case '/scan':
+        _scanAction();
+        break;
+      case '/history':
+        _navigateToScanHistory();
+        break;
+      default:
+        print('Unknown deep link route: $route');
+    }
+  }
+
+  // Method to handle app lifecycle changes
+  void _handleAppLifecycleChange(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Refresh data when app comes back to foreground
+        if (mounted && !isLoading) {
+          refreshUserData();
+        }
+        break;
+      case AppLifecycleState.paused:
+        // Save any pending data when app goes to background
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Method to validate user data integrity
+  bool _validateUserData() {
+    if (user == null) {
+      _showSnackBar('Please log in again', isError: true);
+      return false;
+    }
+
+    if (username.isEmpty) {
+      username = 'User';
+    }
+
+    return true;
+  }
+
+  Widget _buildAllergenIconWithLabel(Map<String, dynamic> allergenData) {
+    String allergenName = allergenData['name'];
+    double severity = allergenData['severity'] ?? 0.5;
+    Color severityColor = _getSeverityColor(severity);
+
+    return Container(
+      margin: EdgeInsets.only(right: 16),
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Color(0xFFF0F9FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Color(0xFFE0F2FE), width: 1),
+                ),
+                child: _getAllergenIcon(allergenName),
+              ),
+              // Severity indicator dot
+              Positioned(
+                top: 2,
+                right: 2,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: severityColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+          Container(
+            width: 66,
+            child: Text(
+              allergenName,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddAllergenIconWithLabel() {
+    return Container(
+      margin: EdgeInsets.only(right: 16),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AllergenProfileScreen(),
+                  ),
+                ),
+            child: Container(
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 color: Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Color(0xFFE2E8F0), width: 1),
               ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: AppColors.textGray, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'No allergens added yet. Tap the + icon to add your allergens.',
-                      style: TextStyle(fontSize: 12, color: AppColors.textGray),
-                    ),
-                  ),
-                  _buildAddAllergenIcon(),
-                ],
-              ),
-            )
-            : Column(
-              children: [
-                Row(
-                  children: [
-                    for (int i = 0; i < allergens.length && i < 2; i++)
-                      _buildAllergenIcon(allergens[i]['name']),
-                    if (allergens.length < 2) _buildAddAllergenIcon(),
-                    if (allergens.length > 2)
-                      Container(
-                        width: 50,
-                        height: 50,
-                        margin: EdgeInsets.only(left: 16),
-                        decoration: BoxDecoration(
-                          color: Color(0xFFF0F9FF),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Color(0xFFE0F2FE),
-                            width: 1,
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '+${allergens.length - 2}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0EA5E9),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                // Allergen Labels Row with Severity
-                Row(
-                  children: [
-                    if (allergens.length < 2) SizedBox(width: 66),
-                    if (allergens.length > 2)
-                      Container(
-                        width: 66,
-                        margin: EdgeInsets.only(top: 8),
-                        child: Text(
-                          'more',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF64748B),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                // Severity Legend
-                if (allergens.isNotEmpty) ...[
-                  SizedBox(height: 12),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildSeverityLegendItem('Mild', AppColors.mild),
-                        SizedBox(width: 12),
-                        _buildSeverityLegendItem(
-                          'Moderate',
-                          AppColors.moderate,
-                        ),
-                        SizedBox(width: 12),
-                        _buildSeverityLegendItem(
-                          'Severe',
-                          AppColors.dangerAlert,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
+              child: Icon(Icons.add, color: Color(0xFF64748B), size: 24),
             ),
+          ),
+          SizedBox(height: 8),
+          Container(
+            width: 66,
+            child: Text(
+              'Add',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-        SizedBox(height: 8),
-      ],
+  Widget _buildMoreAllergensIcon() {
+    return Container(
+      child: Column(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Color(0xFFF0F9FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Color(0xFFE0F2FE), width: 1),
+            ),
+            child: Center(
+              child: Text(
+                '+${allergens.length - 2}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0EA5E9),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: 8),
+          Container(
+            width: 66,
+            child: Text(
+              'more',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -706,118 +1114,88 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  // Enhanced allergen icon builder with severity indication
-  Widget _buildAllergenIcon(String allergenName) {
-    // Find the allergen data to get severity
-    Map<String, dynamic>? allergenData = allergens.firstWhere(
-      (allergen) => allergen['name'] == allergenName,
-      orElse: () => {},
-    );
-
-    double severity =
-        allergenData.isNotEmpty ? allergenData['severity'] ?? 0.5 : 0.5;
-    Color severityColor = _getSeverityColor(severity);
-
-    return Container(
-      margin: EdgeInsets.only(right: 16),
-      child: Stack(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Color(0xFFF0F9FF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Color(0xFFE0F2FE), width: 1),
-            ),
-            child: _getAllergenIcon(allergenName),
-          ),
-          // Severity indicator dot
-          Positioned(
-            top: 2,
-            right: 2,
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: severityColor,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddAllergenIcon() {
-    return GestureDetector(
-      onTap: _navigateToProfile,
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Color(0xFFE2E8F0), width: 1),
-        ),
-        child: Icon(Icons.add, color: Color(0xFF64748B), size: 24),
-      ),
-    );
-  }
-
-  Widget _buildAllergenLabel(String label) {
-    return Container(
-      width: 66,
-      margin: EdgeInsets.only(top: 8),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
+  // Enhanced allergen icon builder with Font Awesome icons
   Widget _getAllergenIcon(String allergenName) {
     final String name = allergenName.toLowerCase().trim();
 
     switch (name) {
       case 'milk':
       case 'dairy':
-        return Icon(Icons.local_drink, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.glassWater,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'cashew':
       case 'nuts':
       case 'nut':
       case 'tree nuts':
-        return Icon(Icons.eco, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.seedling,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'egg':
       case 'eggs':
-        return Icon(Icons.egg, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.egg,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'fish':
-        return Icon(Icons.set_meal, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.fish,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'wheat':
       case 'gluten':
-        return Icon(Icons.grass, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.wheatAwn,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'soy':
       case 'soybean':
       case 'soya':
-        return Icon(Icons.agriculture, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.leaf,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'shellfish':
       case 'seafood':
       case 'crustacean':
-        return Icon(Icons.phishing, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.shrimp,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'peanut':
       case 'peanuts':
-        return Icon(Icons.circle, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.circleNodes,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'sesame':
-        return Icon(Icons.grain, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.pepperHot,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       case 'lupin':
-        return Icon(Icons.local_florist, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.spa,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
       default:
-        return Icon(Icons.warning_amber, color: Color(0xFF0EA5E9), size: 26);
+        return FaIcon(
+          FontAwesomeIcons.triangleExclamation,
+          color: AppColors.primaryColor3,
+          size: 22,
+        );
     }
   }
 
@@ -844,7 +1222,7 @@ class _HomescreenState extends State<Homescreen> {
               color: Color(0xFFF8F9FA),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(Icons.description, color: Color(0xFF64748B), size: 20),
+            child: Icon(icon, color: iconColor, size: 20),
           ),
           SizedBox(width: 12),
           Expanded(
