@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'dart:ui';
+import 'package:allergen/scanHistoryScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/ingredientmodal.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/styleguide.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -37,6 +40,8 @@ class _ResultScreenState extends State<ResultScreen>
   late List<AllergenInfo> currentAllergens;
   bool isEditing = false;
   bool isUpdatingAllergens = false;
+  List<AlternativeProduct> alternativeProducts = []; // ADD THIS
+  String? documentId;
 
   // API Configuration
   static const String _apiKey = 'AIzaSyCzyd0ukiEilgPiJ29HNplB2UtWyOKCZkA';
@@ -63,24 +68,311 @@ class _ResultScreenState extends State<ResultScreen>
     });
   }
 
-  Future<void> _saveChanges() async {
+  Future _saveChanges() async {
     setState(() {
       isEditing = false;
       isUpdatingAllergens = true;
     });
 
-    // Update allergens based on new ingredients using AI
-    await _updateAllergensWithAI();
+    try {
+      // Update allergens based on new ingredients using AI
+      await _updateAllergens();
 
-    // Notify parent of ingredient changes
-    await widget.onIngredientsChanged(currentIngredients);
+      // Update in Firebase database
+      await _updateInFirebase();
 
-    setState(() {
-      isUpdatingAllergens = false;
-    });
+      // Generate alternative products based on allergens
+      await _generateAlternativeProducts();
+
+      // Notify parent of ingredient changes
+      await widget.onIngredientsChanged(currentIngredients);
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Changes saved successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('Error saving changes: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save changes: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        isUpdatingAllergens = false;
+      });
+    }
   }
 
-  Future<void> _updateAllergensWithAI() async {
+  // ADD THIS NEW METHOD TO UPDATE FIREBASE
+  Future<void> _updateInFirebase() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // If we don't have documentId, find the most recent document
+      if (documentId == null) {
+        final querySnapshot =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('history')
+                .orderBy('timestamp', descending: true)
+                .limit(1)
+                .get();
+
+        if (querySnapshot.docs.isNotEmpty) {
+          documentId = querySnapshot.docs.first.id;
+        } else {
+          throw Exception('No document found to update');
+        }
+      }
+
+      // Update the document with new ingredients and allergens
+      final updateData = {
+        'ingredients': currentIngredients,
+        'allergens':
+            currentAllergens
+                .map(
+                  (a) => {
+                    'name': a.name,
+                    'riskLevel': a.riskLevel,
+                    'symptoms': a.symptoms,
+                  },
+                )
+                .toList(),
+        'alternativeProducts':
+            alternativeProducts
+                .map(
+                  (p) => {
+                    'name': p.name,
+                    'description': p.description,
+                    'imageUrl': p.imageUrl,
+                    'price': p.price,
+                    'allergenFree': p.allergenFree,
+                  },
+                )
+                .toList(),
+        'lastUpdated': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('history')
+          .doc(documentId)
+          .update(updateData);
+
+      print('Successfully updated document in Firebase');
+    } catch (e) {
+      print('Error updating Firebase: $e');
+      throw e;
+    }
+  }
+
+  // ADD THIS NEW METHOD TO GENERATE ALTERNATIVE PRODUCTS
+  Future<void> _generateAlternativeProducts() async {
+    if (currentAllergens.isEmpty) {
+      // If no allergens, suggest general healthy alternatives
+      alternativeProducts = [
+        AlternativeProduct(
+          name: 'Organic ${widget.dishName}',
+          description: 'Organic version of this dish',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: [],
+        ),
+        AlternativeProduct(
+          name: 'Gluten-Free Alternative',
+          description: 'Gluten-free version available',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: ['gluten', 'wheat'],
+        ),
+        AlternativeProduct(
+          name: 'Dairy-Free Option',
+          description: 'Made without dairy products',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: ['milk', 'dairy'],
+        ),
+      ];
+      return;
+    }
+
+    try {
+      // Generate alternatives based on detected allergens using AI
+      final response = await _generateAlternativesWithAI();
+
+      if (response != null && response['alternatives'] != null) {
+        List<AlternativeProduct> newAlternatives = [];
+
+        for (var alt in response['alternatives']) {
+          newAlternatives.add(
+            AlternativeProduct(
+              name: alt['name'] ?? 'Alternative Product',
+              description: alt['description'] ?? 'Safe alternative',
+              imageUrl: alt['imageUrl'] ?? '',
+              price: (alt['price'] ?? 0.0).toDouble(),
+              allergenFree: List<String>.from(alt['allergenFree'] ?? []),
+            ),
+          );
+        }
+
+        setState(() {
+          alternativeProducts = newAlternatives;
+        });
+      }
+    } catch (e) {
+      print('Error generating alternatives: $e');
+      // Fallback alternatives
+      setState(() {
+        alternativeProducts = _getDefaultAlternatives();
+      });
+    }
+  }
+
+  // ADD THIS METHOD FOR AI-GENERATED ALTERNATIVES
+  Future<Map<String, dynamic>?> _generateAlternativesWithAI() async {
+    try {
+      final allergenNames = currentAllergens.map((a) => a.name).join(', ');
+
+      final prompt = '''
+Generate 3 alternative food products that are safe for someone allergic to: $allergenNames
+
+The original dish is: ${widget.dishName}
+
+Please provide a JSON response with this structure:
+{
+  "alternatives": [
+    {
+      "name": "Alternative product name",
+      "description": "Brief description why it's safe",
+      "imageUrl": "",
+      "price": 0.0,
+      "allergenFree": ["list", "of", "allergens", "this", "avoids"]
+    }
+  ]
+}
+
+Focus on realistic alternatives that avoid the detected allergens.
+Only return the JSON object, no additional text.
+''';
+
+      final requestBody = {
+        'contents': [
+          {
+            'parts': [
+              {'text': prompt},
+            ],
+          },
+        ],
+        'generationConfig': {
+          'temperature': 0.3,
+          'topK': 1,
+          'topP': 1,
+          'maxOutputTokens': 1024,
+        },
+      };
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl?key=$_apiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final content =
+            data['candidates']?[0]?['content']?['parts']?[0]?['text'];
+
+        if (content != null) {
+          String cleanedContent = content.toString().trim();
+          if (cleanedContent.startsWith('```json')) {
+            cleanedContent = cleanedContent.substring(7);
+          }
+          if (cleanedContent.endsWith('```')) {
+            cleanedContent = cleanedContent.substring(
+              0,
+              cleanedContent.length - 3,
+            );
+          }
+
+          return json.decode(cleanedContent);
+        }
+      }
+    } catch (e) {
+      print('Error generating alternatives with AI: $e');
+    }
+
+    return null;
+  }
+
+  // ADD THIS METHOD FOR DEFAULT ALTERNATIVES
+  List<AlternativeProduct> _getDefaultAlternatives() {
+    final allergenNames =
+        currentAllergens.map((a) => a.name.toLowerCase()).toList();
+
+    List<AlternativeProduct> defaults = [];
+
+    if (allergenNames.contains('milk') || allergenNames.contains('dairy')) {
+      defaults.add(
+        AlternativeProduct(
+          name: 'Plant-Based Alternative',
+          description: 'Made with plant-based milk alternatives',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: ['milk', 'dairy'],
+        ),
+      );
+    }
+
+    if (allergenNames.contains('gluten') || allergenNames.contains('wheat')) {
+      defaults.add(
+        AlternativeProduct(
+          name: 'Gluten-Free Version',
+          description: 'Made with gluten-free ingredients',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: ['gluten', 'wheat'],
+        ),
+      );
+    }
+
+    if (allergenNames.contains('egg')) {
+      defaults.add(
+        AlternativeProduct(
+          name: 'Egg-Free Option',
+          description: 'Prepared without eggs',
+          imageUrl: '',
+          price: 0.0,
+          allergenFree: ['egg'],
+        ),
+      );
+    }
+
+    // Add a general safe option
+    defaults.add(
+      AlternativeProduct(
+        name: 'Allergen-Safe Version',
+        description: 'Specially prepared to avoid detected allergens',
+        imageUrl: '',
+        price: 0.0,
+        allergenFree: allergenNames,
+      ),
+    );
+
+    return defaults.take(3).toList();
+  }
+
+  Future<void> _updateAllergens() async {
     try {
       final response = await _analyzeIngredientsWithAI(currentIngredients);
 
@@ -309,7 +601,18 @@ Only return the JSON object, no additional text.
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          Image.asset('assets/images/history.png', width: 40, height: 40),
+          GestureDetector(
+            onTap:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ScanHistoryScreen()),
+                ),
+            child: Image.asset(
+              'assets/images/history.png',
+              width: 40,
+              height: 40,
+            ),
+          ),
         ],
       ),
       body: Column(
@@ -340,43 +643,81 @@ Only return the JSON object, no additional text.
                         ),
                       ),
                       SizedBox(height: 8),
-                      if (currentAllergens.isNotEmpty)
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red[50],
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 4,
-                                spreadRadius: 1,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Image.asset(
-                                'assets/images/emergency.png',
-                                width: 20,
-                                height: 20,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Allergen detected',
-                                style: TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 12,
+
+                      (currentAllergens.isNotEmpty)
+                          ? Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red[50],
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  spreadRadius: 1,
+                                  offset: const Offset(0, 2),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Image.asset(
+                                  'assets/images/emergency.png',
+                                  width: 20,
+                                  height: 20,
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Allergen detected',
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                          : Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  spreadRadius: 1,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Image.asset(
+                                  'assets/images/check.png',
+                                  width: 20,
+                                  height: 20,
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'No allergen detected',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+
                       SizedBox(height: 10),
                       GestureDetector(
                         onTap: () {
@@ -560,38 +901,129 @@ Only return the JSON object, no additional text.
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 16),
-          Row(
-            children: List.generate(3, (index) {
-              return Expanded(
-                child: Container(
-                  margin: EdgeInsets.only(right: index < 2 ? 8 : 0),
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.image, size: 40, color: Colors.grey),
-                      SizedBox(height: 8),
-                      Text(
-                        'Alternative ${index + 1}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+
+          // REPLACE THE EXISTING ALTERNATIVE PRODUCTS SECTION WITH THIS:
+          alternativeProducts.isEmpty
+              ? Row(
+                children: List.generate(3, (index) {
+                  return Expanded(
+                    child: Container(
+                      margin: EdgeInsets.only(right: index < 2 ? 8 : 0),
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.image, size: 40, color: Colors.grey),
+                          SizedBox(height: 8),
+                          Text(
+                            'Alternative ${index + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Text(
+                            'Loading...',
+                            style: TextStyle(fontSize: 10, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              )
+              : Column(
+                children:
+                    alternativeProducts.map((product) {
+                      return Container(
+                        margin: EdgeInsets.only(bottom: 12),
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
                         ),
-                      ),
-                      Text(
-                        'Coming soon',
-                        style: TextStyle(fontSize: 10, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: Colors.green[50],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.restaurant_menu,
+                                color: Colors.green,
+                                size: 30,
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    product.name,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    product.description,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  if (product.allergenFree.isNotEmpty) ...[
+                                    SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 4,
+                                      children:
+                                          product.allergenFree.map((allergen) {
+                                            return Container(
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green[100],
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              child: Text(
+                                                '${allergen.capitalize()}-free',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.green[700],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+              ),
         ],
       ),
     );
@@ -717,7 +1149,6 @@ Only return the JSON object, no additional text.
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    // AI-powered ingredient chips
                     for (int i = 0; i < currentIngredients.length; i++)
                       _buildIngredientChip(currentIngredients[i], i),
 
@@ -837,6 +1268,7 @@ Only return the JSON object, no additional text.
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
+          backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
@@ -954,4 +1386,20 @@ extension StringCapitalize on String {
     if (isEmpty) return this;
     return this[0].toUpperCase() + substring(1).toLowerCase();
   }
+}
+
+class AlternativeProduct {
+  final String name;
+  final String description;
+  final String imageUrl;
+  final double price;
+  final List<String> allergenFree;
+
+  AlternativeProduct({
+    required this.name,
+    required this.description,
+    required this.imageUrl,
+    required this.price,
+    required this.allergenFree,
+  });
 }

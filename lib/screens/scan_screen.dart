@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/homescreen.dart';
 import 'package:allergen/screens/result_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:camera/camera.dart';
@@ -397,18 +398,62 @@ Your task is to ensure the output helps users easily understand potential allerg
 
   Future<void> saveToFirebase(File imageFile) async {
     try {
+      print('Starting Firebase save process...');
+
+      // Get current user
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        print('ERROR: No user logged in');
+        // Show user feedback
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Please log in to save your scan results'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      print('User authenticated: ${user.uid}');
+
+      // Check if image file exists
+      if (!await imageFile.exists()) {
+        print('ERROR: Image file does not exist');
+        return;
+      }
+
+      print('Image file exists, starting upload...');
+
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('food_images')
-          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+          .child(user.uid)
+          .child(fileName);
 
-      final uploadTask = await storageRef.putFile(imageFile);
-      final imageUrl = await uploadTask.ref.getDownloadURL();
+      print('Storage reference created: ${storageRef.fullPath}');
 
-      await FirebaseFirestore.instance.collection('food_analysis').add({
-        'dishName': dishName,
-        'description': description,
-        'ingredients': ingredients,
+      // Upload with progress monitoring
+      final uploadTask = storageRef.putFile(imageFile);
+
+      // Monitor upload progress (optional)
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        print(
+          'Upload progress: ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%',
+        );
+      });
+
+      final uploadResult = await uploadTask;
+      final imageUrl = await uploadResult.ref.getDownloadURL();
+
+      print('Image uploaded successfully. URL: $imageUrl');
+
+      // Prepare data for Firestore
+      final scanData = {
+        'dishName': dishName.isNotEmpty ? dishName : 'Unknown Dish',
+        'description':
+            description.isNotEmpty ? description : 'No description available',
+        'ingredients': ingredients.isNotEmpty ? ingredients : [],
         'allergens':
             allergens
                 .map(
@@ -420,10 +465,51 @@ Your task is to ensure the output helps users easily understand potential allerg
                 )
                 .toList(),
         'imageUrl': imageUrl,
+        'fileName': fileName,
         'timestamp': FieldValue.serverTimestamp(),
+        'scanDate': DateTime.now().toIso8601String(),
+        'userId': user.uid, // Add user ID for additional security
+      };
+
+      print('Prepared data for Firestore: $scanData');
+
+      final docRef = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('history')
+          .add(scanData);
+
+      setState(() {
+        var documentId = docRef.id;
       });
+
+      print('Successfully saved to Firestore with ID: ${docRef.id}');
+
+      // Show success feedback to user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Scan results saved successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      print('Error saving to Firebase: $e');
+      print('ERROR saving to Firebase: $e');
+      print('Error type: ${e.runtimeType}');
+
+      // Show error feedback to user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save scan results: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+
+      // Log more specific error information
+      if (e is FirebaseException) {
+        print('Firebase Error Code: ${e.code}');
+        print('Firebase Error Message: ${e.message}');
+      }
     }
   }
 

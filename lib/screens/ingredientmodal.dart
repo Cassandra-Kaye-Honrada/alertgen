@@ -39,7 +39,6 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
       });
 
       simplifiedIngredient = await getSimplifiedIngredient(widget.ingredient);
-
       final usdaAllergens = await getAllergenInfoFromUSDA(simplifiedIngredient);
 
       setState(() {
@@ -141,11 +140,10 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
         assetName = 'assets/allergens/Fish.png';
         break;
       case 'shellfish':
-        assetName = 'assets/allergens/Crab.png'; // updated to match shellfish
+        assetName = 'assets/allergens/Crab.png';
         break;
       case 'sesame':
-        assetName =
-            'assets/allergens/Sesame.png'; // corrected to a sesame image
+        assetName = 'assets/allergens/Sesame.png';
         break;
       default:
         assetName = null;
@@ -181,180 +179,169 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle bar
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(2),
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start, // Left align all content
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
-            ),
-      
-            // Header with back button
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.pop(context),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'About the ingredient',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-      
-            const SizedBox(height: 24),
-      
-            if (isLoading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  'Error: $errorMessage',
-                  style: const TextStyle(color: Colors.red),
-                ),
-              )
-            else ...[
-              // Ingredient name
-              Text(
-                simplifiedIngredient.isNotEmpty
-                    ? simplifiedIngredient
-                    : widget.ingredient,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+              const SizedBox(width: 12),
+              const Text(
+                'About the ingredient',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-      
-              const SizedBox(height: 16),
-      
-              // Allergen warning
-              if (allergensFound.isNotEmpty) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        size: 16,
-                        color: AppColors.textGray,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Contains an allergen',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-      
-                const SizedBox(height: 24),
-      
-                // Allergen icons
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  children:
-                      allergensFound.map((allergen) {
-                        return Column(
-                          children: [
-                            Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                color: _getAllergenColor(allergen),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: _getAllergenImage(allergen),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              allergen,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        );
-                      }).toList(),
-                ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade100,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        size: 16,
-                        color: Colors.green.shade700,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'No allergens detected',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-      
-              const SizedBox(height: 40),
             ],
+          ),
+          const SizedBox(height: 24),
+          if (isLoading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'Error: $errorMessage',
+                style: const TextStyle(color: Colors.red),
+              ),
+            )
+          else ...[
+            Text(
+              simplifiedIngredient.isNotEmpty
+                  ? simplifiedIngredient
+                  : widget.ingredient,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+              textAlign: TextAlign.left,
+            ),
+            const SizedBox(height: 16),
+            if (allergensFound.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: AppColors.textGray,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Contains an allergen',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                alignment: WrapAlignment.start,
+                spacing: 16,
+                runSpacing: 16,
+                children:
+                    allergensFound.map((allergen) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: _getAllergenColor(allergen),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: _getAllergenImage(allergen),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            allergen,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      size: 16,
+                      color: Colors.green.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'No allergens detected',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 40),
           ],
-        ),
+        ],
       ),
     );
   }
