@@ -495,7 +495,6 @@ class ScanHistoryScreen extends StatelessWidget {
       final ingredients = List<String>.from(data['ingredients'] ?? []);
       final allergenData = data['allergens'] as List<dynamic>? ?? [];
 
-      // Handle both fileName and imagePath (extract filename from path)
       String? fileName = data['fileName'] as String?;
       if (fileName == null) {
         final imagePath = data['imagePath'] as String?;
@@ -538,7 +537,7 @@ class ScanHistoryScreen extends StatelessWidget {
       );
 
       final File? imageFile = await _downloadAndCacheImage(fileName);
-      Navigator.of(context).pop(); // Close loading dialog
+      Navigator.of(context).pop(); 
 
       if (imageFile == null) {
         print('Failed to download image: $fileName');

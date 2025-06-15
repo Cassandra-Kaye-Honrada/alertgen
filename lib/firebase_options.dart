@@ -66,4 +66,5 @@ class DefaultFirebaseOptions {
     projectId: 'alertgen-18915',
     storageBucket: 'alertgen-18915.firebasestorage.app',
   );
+
 }

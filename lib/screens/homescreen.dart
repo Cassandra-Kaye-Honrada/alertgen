@@ -3,13 +3,17 @@ import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/emergencyScreen.dart';
 import 'package:allergen/screens/scan_screen.dart';
+import 'package:allergen/screens/result_screen.dart'; // Add this import
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-
-import 'AllergenProfileScreen.dart'; // Add this import
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'AllergenProfileScreen.dart';
 
 class Homescreen extends StatefulWidget {
   @override
@@ -19,19 +23,18 @@ class Homescreen extends StatefulWidget {
 class _HomescreenState extends State<Homescreen> {
   final User? user = FirebaseAuth.instance.currentUser;
   List<Map<String, dynamic>> allergens = [];
-  String username = 'User'; // Add username state variable
+  List<Map<String, dynamic>> recentHistory = [];
+  String username = 'User';
   bool isLoading = true;
+  bool isHistoryLoading = true;
   int _currentIndex = 0;
   bool _isDisposed = false;
 
   @override
   void initState() {
     super.initState();
-    // Use post frame callback to ensure widget is built before making async calls
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_isDisposed) {
-        _safeInitialization();
-      }
+      if (!_isDisposed) _safeInitialization();
     });
   }
 
@@ -43,14 +46,19 @@ class _HomescreenState extends State<Homescreen> {
 
   Future<void> _safeInitialization() async {
     try {
-      // Fetch both username and allergens concurrently
-      await Future.wait([fetchUsername(), fetchAllergenProfile()]);
+      await Future.wait([
+        fetchUsername(),
+        fetchAllergenProfile(),
+        fetchRecentHistory(),
+      ]);
     } catch (e) {
       print('Initialization error: $e');
       if (!_isDisposed && mounted) {
         setState(() {
           isLoading = false;
+          isHistoryLoading = false;
           allergens = [];
+          recentHistory = [];
           username = 'User';
         });
       }
@@ -58,48 +66,44 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   Future<void> fetchUsername() async {
-    if (user == null || _isDisposed) return;
+    if (user == null) return;
 
     try {
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+      final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user!.uid)
           .get()
           .timeout(Duration(seconds: 15));
 
-      if (!_isDisposed && mounted && userDoc.exists) {
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>?;
         setState(() {
-          username = userDoc['username'] ?? 'User';
+          username = data?['username'] ?? 'User';
         });
+        print('Username: $username');
+      } else {
+        print('User document not found');
       }
     } catch (e) {
       print('Error fetching username: $e');
-      if (!_isDisposed && mounted) {
-        setState(() {
-          username = 'User';
-        });
-      }
+      setState(() {
+        username = 'User'; // Fallback value
+      });
     }
   }
 
-  // Improved fetchAllergenProfile method (better filtering and data handling)
   Future<void> fetchAllergenProfile() async {
     if (user == null || _isDisposed) return;
-
     try {
-      CollectionReference profileRef = FirebaseFirestore.instance
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user!.uid)
-          .collection('profile');
-
-      // Filter specifically for allergen type documents like in OnboardingScreen
-      QuerySnapshot snapshot = await profileRef
+          .collection('profile')
           .where('type', isEqualTo: 'allergen')
           .get()
           .timeout(Duration(seconds: 15));
 
       List<Map<String, dynamic>> fetchedAllergens = [];
-
       for (var doc in snapshot.docs) {
         if (doc.data() != null) {
           Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
@@ -108,20 +112,10 @@ class _HomescreenState extends State<Homescreen> {
             'id': doc.id,
             'severity': (data['severity'] ?? 0.5).toDouble(),
             'type': data['type']?.toString() ?? 'allergen',
-            'createdAt': data['createdAt'], // Include timestamp if needed
+            'createdAt': data['createdAt'],
           });
         }
       }
-
-      // Sort by creation date if available (newest first)
-      fetchedAllergens.sort((a, b) {
-        if (a['createdAt'] != null && b['createdAt'] != null) {
-          Timestamp aTime = a['createdAt'] as Timestamp;
-          Timestamp bTime = b['createdAt'] as Timestamp;
-          return bTime.compareTo(aTime);
-        }
-        return 0;
-      });
 
       if (!_isDisposed && mounted) {
         setState(() {
@@ -140,208 +134,257 @@ class _HomescreenState extends State<Homescreen> {
     }
   }
 
-  // Add method to get severity color (from OnboardingScreen)
-  Color _getSeverityColor(double severity) {
-    if (severity < 0.33) return AppColors.mild; // Mild
-    if (severity < 0.67) return AppColors.moderate; // Moderate
-    return AppColors.dangerAlert; // Severe
+  Future<void> fetchRecentHistory() async {
+    if (user == null || _isDisposed) return;
+    try {
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .collection('history')
+          .orderBy('timestamp', descending: true)
+          .limit(3)
+          .get()
+          .timeout(Duration(seconds: 15));
+
+      List<Map<String, dynamic>> fetchedHistory = [];
+      for (var doc in snapshot.docs) {
+        if (doc.data() != null) {
+          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+          fetchedHistory.add({
+            'id': doc.id,
+            'dishName': data['dishName'] ?? 'Unknown Dish',
+            'description': data['description'] ?? '',
+            'ingredients': List<String>.from(data['ingredients'] ?? []),
+            'allergens': data['allergens'] ?? [],
+            'imageUrl': data['imageUrl'] ?? '',
+            'fileName': data['fileName'] ?? '',
+            'imagePath': data['imagePath'] ?? '',
+            'timestamp': data['timestamp'],
+            'scanDate': data['scanDate'] ?? '',
+          });
+        }
+      }
+
+      if (!_isDisposed && mounted) {
+        setState(() {
+          recentHistory = fetchedHistory;
+          isHistoryLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching recent history: $e');
+      if (!_isDisposed && mounted) {
+        setState(() {
+          recentHistory = [];
+          isHistoryLoading = false;
+        });
+      }
+    }
   }
 
-  // Method to refresh user data
+  Color _getSeverityColor(double severity) {
+    if (severity < 0.33) return AppColors.mild;
+    if (severity < 0.67) return AppColors.moderate;
+    return AppColors.dangerAlert;
+  }
+
+  String _getSeverityText(double severity) {
+    if (severity < 0.33) return 'Mild';
+    if (severity < 0.67) return 'Moderate';
+    return 'Severe';
+  }
+
+  String _getTimeAgo(dynamic timestamp) {
+    if (timestamp == null) return 'Unknown time';
+
+    DateTime dateTime;
+    if (timestamp is Timestamp) {
+      dateTime = timestamp.toDate();
+    } else if (timestamp is String) {
+      try {
+        dateTime = DateTime.parse(timestamp);
+      } catch (e) {
+        return 'Unknown time';
+      }
+    } else {
+      return 'Unknown time';
+    }
+
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hr${difference.inHours == 1 ? '' : 's'} ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} min ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
+  Future<File?> _getCachedImage(String fileName) async {
+    try {
+      // Get the cache directory
+      final Directory tempDir = await getTemporaryDirectory();
+      final String filePath = '${tempDir.path}/$fileName';
+      final File file = File(filePath);
+
+      // Check if file already exists in cache
+      if (await file.exists()) {
+        return file;
+      }
+
+      // If not in cache, download it
+      return await _downloadAndCacheImage(fileName);
+    } catch (e) {
+      print('Error getting cached image: $e');
+      return null;
+    }
+  }
+
+  void _navigateToResultScreen(Map<String, dynamic> historyItem) async {
+    try {
+      final dishName = historyItem['dishName'] ?? 'Unknown Dish';
+      final description =
+          historyItem['description'] ?? 'No description available';
+      final ingredients = List<String>.from(historyItem['ingredients'] ?? []);
+      final allergenData = historyItem['allergens'] as List<dynamic>? ?? [];
+
+      // Handle both fileName and imagePath (extract filename from path)
+      String? fileName = historyItem['fileName'] as String?;
+      if (fileName == null) {
+        final imagePath = historyItem['imagePath'] as String?;
+        if (imagePath != null) {
+          fileName = imagePath.split('/').last;
+        }
+      }
+
+      final List<AllergenInfo> allergens =
+          allergenData.map((allergen) {
+            final allergenMap = allergen as Map<String, dynamic>;
+            return AllergenInfo(
+              name: allergenMap['name'] ?? 'Unknown',
+              riskLevel: allergenMap['riskLevel'] ?? 'mild',
+              symptoms: List<String>.from(allergenMap['symptoms'] ?? []),
+            );
+          }).toList();
+
+      if (fileName == null) {
+        print('No fileName or imagePath found in history item');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image filename not found in database'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (context) => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+              ),
+            ),
+      );
+
+      final File? imageFile = await _downloadAndCacheImage(fileName);
+      Navigator.of(context).pop(); // Close loading dialog
+
+      if (imageFile == null) {
+        print('Failed to download image: $fileName');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load image: $fileName'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
+      // Navigate to ResultScreen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ResultScreen(
+                image: imageFile,
+                dishName: dishName,
+                description: description,
+                ingredients: ingredients,
+                allergens: allergens,
+                onIngredientsChanged: (updatedIngredients) async {
+                  print('Ingredients updated: $updatedIngredients');
+                  // You can add additional logic here if needed
+                },
+              ),
+        ),
+      );
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog if open
+      print('Error navigating to result: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening scan result: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  // Add this method to download and cache images
+  Future<File?> _downloadAndCacheImage(String fileName) async {
+    try {
+      // Get the cache directory
+      final Directory tempDir = await getTemporaryDirectory();
+      final String filePath = '${tempDir.path}/$fileName';
+      final File file = File(filePath);
+
+      // Check if file already exists in cache
+      if (await file.exists()) {
+        print('Image found in cache: $fileName');
+        return file;
+      }
+
+      // Download from Firebase Storage
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('scan_images')
+          .child(fileName);
+
+      final String downloadURL = await storageRef.getDownloadURL();
+
+      // Download the image
+      final http.Response response = await http.get(Uri.parse(downloadURL));
+
+      if (response.statusCode == 200) {
+        await file.writeAsBytes(response.bodyBytes);
+        print('Image downloaded and cached: $fileName');
+        return file;
+      } else {
+        print('Failed to download image. Status code: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error downloading image: $e');
+      return null;
+    }
+  }
+
   Future<void> refreshUserData() async {
     if (!_isDisposed && mounted) {
       setState(() {
         isLoading = true;
+        isHistoryLoading = true;
       });
       await _safeInitialization();
-    }
-  }
-
-  void _scanAction() {
-    if (!_isDisposed && mounted) {
-      try {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => CameraScannerScreen()),
-        );
-      } catch (e) {
-        print('Navigation error to scanner: $e');
-      }
-    }
-  }
-
-  void _navigateToProfile() {
-    if (!_isDisposed && mounted) {
-      try {
-        Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => UserProfile()),
-            )
-            .then((_) {
-              // Reset the current index and refresh data when returning from profile
-              if (!_isDisposed && mounted) {
-                setState(() {
-                  _currentIndex = 0;
-                });
-                // Refresh user data in case allergens were updated
-                refreshUserData();
-              }
-            })
-            .catchError((error) {
-              print('Navigation error to profile: $error');
-            });
-      } catch (e) {
-        print('Profile navigation error: $e');
-      }
-    }
-  }
-
-  Widget _buildAllergenGrid() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Allergen icons in a scrollable row with always visible add button
-        SizedBox(
-          height: 80, // Adjust height based on your icon size
-          child: Row(
-            children: [
-              // Scrollable allergen list
-              Expanded(
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: allergens.length,
-                  itemBuilder: (context, index) {
-                    return GestureDetector(
-                      onTap: () => _showAllergenDetails(allergens[index]),
-                      child: _buildAllergenIconWithLabel(allergens[index]),
-                    );
-                  },
-                ),
-              ),
-
-              // Always visible add button (outside the scrollable area)
-              Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: _buildAddAllergenIconWithLabel(),
-              ),
-            ],
-          ),
-        ),
-
-        // Show "more" indicator below if there are many allergens
-        if (allergens.length > 4) ...[
-          SizedBox(height: 8),
-          GestureDetector(
-            onTap: _navigateToProfile,
-            child: Text(
-              'View all allergens',
-              style: TextStyle(
-                color: Colors.blue,
-                fontSize: 12,
-                decoration: TextDecoration.underline,
-              ),
-            ),
-          ),
-        ],
-
-        // Severity legend
-        if (allergens.isNotEmpty) ...[
-          SizedBox(height: 16),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSeverityLegendItem('Mild', AppColors.mild),
-                SizedBox(width: 12),
-                _buildSeverityLegendItem('Moderate', AppColors.moderate),
-                SizedBox(width: 12),
-                _buildSeverityLegendItem('Severe', AppColors.dangerAlert),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildEmptyAllergenState() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Color(0xFFE2E8F0), width: 1),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.add_circle_outline, size: 48, color: AppColors.textGray),
-          SizedBox(height: 12),
-          Text(
-            'No allergens added yet',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textBlack,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Add your allergens to get personalized food safety alerts',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: AppColors.textGray),
-          ),
-          SizedBox(height: 16),
-          ElevatedButton(
-            onPressed:
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => UserProfile()),
-                ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text('Add Allergens', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _navigateToEmergency() {
-    if (!_isDisposed && mounted) {
-      try {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => EmergencyScreen()),
-        ).catchError((error) {
-          print('Navigation error to emergency: $error');
-        });
-      } catch (e) {
-        print('Emergency navigation error: $e');
-      }
-    }
-  }
-
-  void _navigateToFirstAid() {
-    if (!_isDisposed && mounted) {
-      try {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => FirstAidScreen()),
-        ).catchError((error) {
-          print('Navigation error to first aid: $error');
-        });
-      } catch (e) {
-        print('First aid navigation error: $e');
-      }
     }
   }
 
@@ -352,43 +395,35 @@ class _HomescreenState extends State<Homescreen> {
       body: Stack(
         children: [
           SafeArea(
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 20.0,
-                  right: 20.0,
-                  top: 20.0,
-                  bottom: 120.0,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header with Scan button
-                    _buildHeader(),
-                    SizedBox(height: 30),
-
-                    // Emergency Section
-                    _buildEmergencySection(),
-                    SizedBox(height: 30),
-
-                    // Allergen Profile Section
-                    _buildAllergenProfileSection(),
-                    SizedBox(height: 20),
-
-                    // Treatment Section
-                    _buildTreatmentSection(),
-                    SizedBox(height: 30),
-
-                    // Recent History Section
-                    _buildRecentHistorySection(),
-                  ],
+            child: RefreshIndicator(
+              onRefresh: refreshUserData,
+              child: SingleChildScrollView(
+                physics: AlwaysScrollableScrollPhysics(),
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 20,
+                    bottom: 120,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(),
+                      SizedBox(height: 30),
+                      _buildEmergencySection(),
+                      SizedBox(height: 30),
+                      _buildAllergenProfileSection(),
+                      SizedBox(height: 20),
+                      _buildTreatmentSection(),
+                      SizedBox(height: 30),
+                      _buildRecentHistorySection(),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-
-          // Bottom Navigation
           _buildBottomNavigation(),
         ],
       ),
@@ -425,13 +460,17 @@ class _HomescreenState extends State<Homescreen> {
 
   Widget _buildEmergencySection() {
     return GestureDetector(
-      onLongPress: _navigateToEmergency,
+      onLongPress:
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => EmergencyScreen()),
+          ),
       child: Container(
         padding: EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Color(0xFFF6F8FA),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Color(0xFFE2E8F0), width: 1),
+          border: Border.all(color: Color(0xFFE2E8F0)),
         ),
         child: Row(
           children: [
@@ -444,13 +483,12 @@ class _HomescreenState extends State<Homescreen> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textBlack,
                       height: 1.3,
                     ),
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Long press this area, your live location will be shared with the nearest help centre and your emergency contacts',
+                    'Long press this area, your live location will be shared with the nearest help centre',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textGray,
@@ -461,18 +499,14 @@ class _HomescreenState extends State<Homescreen> {
               ),
             ),
             SizedBox(width: 16),
-            _buildEmergencyIcon(),
+            Container(
+              width: 60,
+              height: 60,
+              child: Image.asset('assets/images/emergency_light.png'),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildEmergencyIcon() {
-    return Container(
-      width: 60,
-      height: 60,
-      child: Image.asset('assets/images/emergency_light.png'),
     );
   }
 
@@ -492,41 +526,24 @@ class _HomescreenState extends State<Homescreen> {
               ),
             ),
             if (!isLoading && allergens.isNotEmpty)
-              Row(
-                children: [
-                  Text(
-                    '${allergens.length} allergen${allergens.length > 1 ? 's' : ''}',
-                    style: TextStyle(fontSize: 14, color: AppColors.textGray),
-                  ),
-                  SizedBox(width: 8),
-                  GestureDetector(
-                    onTap:
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AllergenProfileScreen(),
-                          ),
-                        ),
-                    child: Icon(
-                      Icons.edit,
-                      size: 16,
-                      color: AppColors.textGray,
+              GestureDetector(
+                onTap:
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => UserProfile()),
                     ),
-                  ),
-                ],
+                child: Text(
+                  '${allergens.length} allergen${allergens.length > 1 ? 's' : ''}',
+                  style: TextStyle(fontSize: 14, color: AppColors.textGray),
+                ),
               ),
           ],
         ),
         SizedBox(height: 16),
-
-        // Enhanced allergen display with tap functionality
         isLoading
             ? Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-                ),
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
               ),
             )
             : allergens.isEmpty
@@ -536,251 +553,23 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Future<void> _handleRefresh() async {
-    await refreshUserData();
-  }
-
-  // Method to show allergen details dialog
-  void _showAllergenDetails(Map<String, dynamic> allergen) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Row(
-            children: [
-              _getAllergenIcon(allergen['name']),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  allergen['name'],
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textBlack,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Severity Level',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textGray,
-                ),
-              ),
-              SizedBox(height: 8),
-              Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: _getSeverityColor(allergen['severity']),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    _getSeverityText(allergen['severity']),
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textBlack,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Always carry your prescribed medication and inform others about your allergies.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textGray,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text('Close', style: TextStyle(color: AppColors.primary)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _navigateToProfile();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: Text('Edit', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // Helper method to get severity text
-  String _getSeverityText(double severity) {
-    if (severity < 0.33) return 'Mild';
-    if (severity < 0.67) return 'Moderate';
-    return 'Severe';
-  }
-
-  // Method to handle scan history navigation with error handling
-  void _navigateToScanHistory() {
-    if (!_isDisposed && mounted) {
-      try {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => ScanHistoryScreen()),
-        ).catchError((error) {
-          print('Navigation error to scan history: $error');
-        });
-      } catch (e) {
-        print('Scan history navigation error: $e');
-      }
-    }
-  }
-
-  // Enhanced method to show snackbar messages
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.dangerAlert : AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: Duration(seconds: 3),
+  Widget _buildAllergenGrid() {
+    return SizedBox(
+      height: 80,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: allergens.length + 1,
+        itemBuilder: (context, index) {
+          if (index == allergens.length) {
+            return _buildAddAllergenIcon();
+          }
+          return _buildAllergenIcon(allergens[index]);
+        },
       ),
     );
   }
 
-  // Method to handle network connectivity issues
-  Future<bool> _checkConnectivity() async {
-    try {
-      // Simple connectivity check - you might want to use connectivity_plus package
-      return true; // Placeholder - implement actual connectivity check
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Method to show offline indicator
-  Widget _buildOfflineIndicator() {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(vertical: 8),
-      color: AppColors.dangerAlert,
-      child: Text(
-        'No internet connection',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  // Enhanced error handling for Firestore operations
-  Future<T?> _safeFirestoreOperation<T>(Future<T> operation) async {
-    try {
-      return await operation.timeout(Duration(seconds: 15));
-    } catch (e) {
-      print('Firestore operation failed: $e');
-      if (mounted) {
-        _showSnackBar(
-          'Connection error. Please check your internet.',
-          isError: true,
-        );
-      }
-      return null;
-    }
-  }
-
-  // Method to handle deep links or navigation from notifications
-  void _handleDeepLink(String? route) {
-    if (route == null || !mounted) return;
-
-    switch (route) {
-      case '/profile':
-        _navigateToProfile();
-        break;
-      case '/emergency':
-        _navigateToEmergency();
-        break;
-      case '/scan':
-        _scanAction();
-        break;
-      case '/history':
-        _navigateToScanHistory();
-        break;
-      default:
-        print('Unknown deep link route: $route');
-    }
-  }
-
-  // Method to handle app lifecycle changes
-  void _handleAppLifecycleChange(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.resumed:
-        // Refresh data when app comes back to foreground
-        if (mounted && !isLoading) {
-          refreshUserData();
-        }
-        break;
-      case AppLifecycleState.paused:
-        // Save any pending data when app goes to background
-        break;
-      default:
-        break;
-    }
-  }
-
-  // Method to validate user data integrity
-  bool _validateUserData() {
-    if (user == null) {
-      _showSnackBar('Please log in again', isError: true);
-      return false;
-    }
-
-    if (username.isEmpty) {
-      username = 'User';
-    }
-
-    return true;
-  }
-
-  Widget _buildAllergenIconWithLabel(Map<String, dynamic> allergenData) {
-    String allergenName = allergenData['name'];
-    double severity = allergenData['severity'] ?? 0.5;
-    Color severityColor = _getSeverityColor(severity);
-
+  Widget _buildAllergenIcon(Map<String, dynamic> allergenData) {
     return Container(
       margin: EdgeInsets.only(right: 16),
       child: Column(
@@ -794,11 +583,10 @@ class _HomescreenState extends State<Homescreen> {
                 decoration: BoxDecoration(
                   color: Color(0xFFF0F9FF),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Color(0xFFE0F2FE), width: 1),
+                  border: Border.all(color: Color(0xFFE0F2FE)),
                 ),
-                child: _getAllergenIcon(allergenName),
+                child: _getAllergenIcon(allergenData['name']),
               ),
-              // Severity indicator dot
               Positioned(
                 top: 2,
                 right: 2,
@@ -806,9 +594,9 @@ class _HomescreenState extends State<Homescreen> {
                   width: 12,
                   height: 12,
                   decoration: BoxDecoration(
-                    color: severityColor,
+                    color: _getSeverityColor(allergenData['severity']),
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1),
+                    border: Border.all(color: Colors.white),
                   ),
                 ),
               ),
@@ -818,7 +606,7 @@ class _HomescreenState extends State<Homescreen> {
           Container(
             width: 66,
             child: Text(
-              allergenName,
+              allergenData['name'],
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -834,7 +622,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildAddAllergenIconWithLabel() {
+  Widget _buildAddAllergenIcon() {
     return Container(
       margin: EdgeInsets.only(right: 16),
       child: Column(
@@ -843,9 +631,7 @@ class _HomescreenState extends State<Homescreen> {
             onTap:
                 () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (context) => AllergenProfileScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => AllergenProfileScreen()),
                 ),
             child: Container(
               width: 50,
@@ -853,22 +639,19 @@ class _HomescreenState extends State<Homescreen> {
               decoration: BoxDecoration(
                 color: Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Color(0xFFE2E8F0), width: 1),
+                border: Border.all(color: Color(0xFFE2E8F0)),
               ),
               child: Icon(Icons.add, color: Color(0xFF64748B), size: 24),
             ),
           ),
           SizedBox(height: 8),
-          Container(
-            width: 66,
-            child: Text(
-              'Add',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-                fontWeight: FontWeight.w500,
-              ),
+          Text(
+            'Add',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -876,59 +659,49 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildMoreAllergensIcon() {
+  Widget _buildEmptyAllergenState() {
     return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Color(0xFFE2E8F0)),
+      ),
       child: Column(
         children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: Color(0xFFF0F9FF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Color(0xFFE0F2FE), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                '+${allergens.length - 2}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0EA5E9),
-                ),
-              ),
+          Icon(Icons.add_circle_outline, size: 48, color: AppColors.textGray),
+          SizedBox(height: 12),
+          Text(
+            'No allergens added yet',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textBlack,
             ),
           ),
-          SizedBox(height: 8),
-          Container(
-            width: 66,
-            child: Text(
-              'more',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-                fontWeight: FontWeight.w500,
+          SizedBox(height: 4),
+          Text(
+            'Add your allergens to get personalized food safety alerts',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textGray),
+          ),
+          SizedBox(height: 16),
+          ElevatedButton(
+            onPressed:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => UserProfile()),
+                ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
+            child: Text('Add Allergens', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSeverityLegendItem(String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-      ],
     );
   }
 
@@ -962,7 +735,11 @@ class _HomescreenState extends State<Homescreen> {
             ),
           ),
           GestureDetector(
-            onTap: _navigateToFirstAid,
+            onTap:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => FirstAidScreen()),
+                ),
             child: Container(
               padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -991,35 +768,230 @@ class _HomescreenState extends State<Homescreen> {
                 color: Color(0xFF2D3748),
               ),
             ),
-            Text(
-              'View all',
-              style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+            GestureDetector(
+              onTap:
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => ScanHistoryScreen()),
+                  ),
+              child: Text(
+                'View all',
+                style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+              ),
             ),
           ],
         ),
         SizedBox(height: 16),
-
-        // History Items
-        Column(
-          children: [
-            _buildHistoryItem(
-              'Food Scan Result',
-              'Contains allergens',
-              '5 hrs ago',
-              Icons.warning,
-              Color(0xFFFCD34D),
+        isHistoryLoading
+            ? Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+              ),
+            )
+            : recentHistory.isEmpty
+            ? _buildEmptyHistoryState()
+            : Column(
+              children:
+                  recentHistory
+                      .map(
+                        (item) => Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: _buildHistoryItem(item),
+                        ),
+                      )
+                      .toList(),
             ),
-            SizedBox(height: 12),
-            _buildHistoryItem(
-              'Food Scan Result',
-              'Safe to consume',
-              '1 day ago',
-              Icons.check_circle,
-              Color(0xFF10B981),
+      ],
+    );
+  }
+
+  Widget _buildEmptyHistoryState() {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.history, size: 48, color: AppColors.textGray),
+          SizedBox(height: 12),
+          Text(
+            'No scan history yet',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textBlack,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Start scanning food items to see your history here',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textGray),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryItem(Map<String, dynamic> item) {
+    List<dynamic> allergensList = item['allergens'] ?? [];
+    bool hasAllergens = allergensList.isNotEmpty;
+
+    // Extract filename for image loading
+    String? fileName = item['fileName'] as String?;
+    if (fileName == null) {
+      final imagePath = item['imagePath'] as String?;
+      if (imagePath != null) {
+        fileName = imagePath.split('/').last;
+      }
+    }
+
+    return GestureDetector(
+      onTap: () => _navigateToResultScreen(item),
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            // Image container with fallback
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Color(0xFFE2E8F0)),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child:
+                    fileName != null
+                        ? FutureBuilder<File?>(
+                          future: _getCachedImage(fileName),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            } else if (snapshot.hasData &&
+                                snapshot.data != null) {
+                              return Image.file(
+                                snapshot.data!,
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover,
+                              );
+                            } else {
+                              // Fallback to icon if image fails to load
+                              return Icon(
+                                hasAllergens
+                                    ? Icons.warning
+                                    : Icons.check_circle,
+                                color:
+                                    hasAllergens
+                                        ? AppColors.dangerAlert
+                                        : Colors.green,
+                                size: 20,
+                              );
+                            }
+                          },
+                        )
+                        : Icon(
+                          hasAllergens ? Icons.warning : Icons.check_circle,
+                          color:
+                              hasAllergens
+                                  ? AppColors.dangerAlert
+                                  : Colors.green,
+                          size: 20,
+                        ),
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item['dishName'],
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2D3748),
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    hasAllergens
+                        ? 'Contains ${allergensList.length} allergen${allergensList.length > 1 ? 's' : ''}'
+                        : 'Safe to consume',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color:
+                        hasAllergens
+                            ? AppColors.dangerAlert.withOpacity(0.1)
+                            : Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        hasAllergens ? Icons.warning : Icons.check_circle,
+                        size: 12,
+                        color:
+                            hasAllergens ? AppColors.dangerAlert : Colors.green,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        hasAllergens ? 'Warning' : 'Safe',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color:
+                              hasAllergens
+                                  ? AppColors.dangerAlert
+                                  : Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  _getTimeAgo(item['timestamp']),
+                  style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
+                ),
+              ],
             ),
           ],
         ),
-      ],
+      ),
     );
   }
 
@@ -1038,74 +1010,57 @@ class _HomescreenState extends State<Homescreen> {
               color: Colors.black.withOpacity(0.1),
               blurRadius: 10,
               spreadRadius: 2,
-              offset: const Offset(0, 2),
+              offset: Offset(0, 2),
             ),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            // Home button
             GestureDetector(
-              onTap: () {
-                if (!_isDisposed && mounted) {
-                  setState(() {
-                    _currentIndex = 0;
-                  });
-                }
-              },
+              onTap: () => setState(() => _currentIndex = 0),
               child: Image.asset(
                 'assets/navigation/menu_active.png',
                 width: 24,
                 height: 24,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Icon(
-                    Icons.home,
-                    color: Color(0xFF64748B),
-                    size: 24,
-                  );
-                },
+                errorBuilder:
+                    (_, __, ___) =>
+                        Icon(Icons.home, color: Color(0xFF64748B), size: 24),
               ),
             ),
-
-            // Scan button
             GestureDetector(
-              onTap: _scanAction,
+              onTap:
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => CameraScannerScreen()),
+                  ),
               child: Image.asset(
                 'assets/navigation/scan_inactive.png',
                 width: 24,
                 height: 24,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Icon(
-                    Icons.camera_alt,
-                    color: Color(0xFF64748B),
-                    size: 24,
-                  );
-                },
+                errorBuilder:
+                    (_, __, ___) => Icon(
+                      Icons.camera_alt,
+                      color: Color(0xFF64748B),
+                      size: 24,
+                    ),
               ),
             ),
-
-            // Profile button
             GestureDetector(
               onTap: () {
-                if (!_isDisposed && mounted) {
-                  setState(() {
-                    _currentIndex = 2;
-                  });
-                  _navigateToProfile();
-                }
+                setState(() => _currentIndex = 2);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => UserProfile()),
+                );
               },
               child: Image.asset(
                 'assets/navigation/Profile_inactive.png',
                 width: 24,
                 height: 24,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Icon(
-                    Icons.person,
-                    color: Color(0xFF00BCD4),
-                    size: 24,
-                  );
-                },
+                errorBuilder:
+                    (_, __, ___) =>
+                        Icon(Icons.person, color: Color(0xFF00BCD4), size: 24),
               ),
             ),
           ],
@@ -1114,10 +1069,8 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  // Enhanced allergen icon builder with Font Awesome icons
   Widget _getAllergenIcon(String allergenName) {
     final String name = allergenName.toLowerCase().trim();
-
     switch (name) {
       case 'milk':
       case 'dairy':
@@ -1197,67 +1150,5 @@ class _HomescreenState extends State<Homescreen> {
           size: 22,
         );
     }
-  }
-
-  Widget _buildHistoryItem(
-    String title,
-    String subtitle,
-    String time,
-    IconData icon,
-    Color iconColor,
-  ) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Color(0xFFE2E8F0), width: 1),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Color(0xFFF8F9FA),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Icon(icon, color: iconColor, size: 20),
-              SizedBox(height: 4),
-              Text(
-                time,
-                style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
   }
 }
