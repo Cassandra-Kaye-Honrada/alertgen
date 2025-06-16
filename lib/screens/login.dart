@@ -1,4 +1,5 @@
 import 'package:allergen/screens/onboarding.dart';
+import 'package:allergen/screens/reset_password.dart';
 import 'package:allergen/screens/signupscreen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -283,7 +284,11 @@ class LoginScreenState extends State<LoginScreen> {
                     ),
                     GestureDetector(
                       onTap: () {
-                        // TODO: Implement forgot password
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ResetPasswordScreen(),
+                          ),
+                        );
                       },
                       child: const Text(
                         'Forgot password?',
