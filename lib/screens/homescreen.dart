@@ -530,7 +530,7 @@ class _HomescreenState extends State<Homescreen> {
                 onTap:
                     () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => UserProfile()),
+                      MaterialPageRoute(builder: (_) => AllergenProfileScreen()),
                     ),
                 child: Text(
                   '${allergens.length} allergen${allergens.length > 1 ? 's' : ''}',

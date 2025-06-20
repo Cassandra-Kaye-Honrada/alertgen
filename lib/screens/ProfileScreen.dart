@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../EmergencyContactScreen.dart';
 import 'AllergenProfileScreen.dart';
 
 class UserProfile extends StatefulWidget {
@@ -421,6 +422,21 @@ class _UserProfileState extends State<UserProfile> {
                                             icon: Icons.history,
                                             label: 'Scan History',
                                             showBorder: false,
+                                          ),
+                                          _buildSettingItem(
+                                            icon: Icons.phone,
+                                            label: 'Emergency Contact',
+                                            showBorder: false,
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder:
+                                                      (_) =>
+                                                          EmergencyContactScreen(),
+                                                ),
+                                              );
+                                            },
                                           ),
                                         ],
                                       ),
