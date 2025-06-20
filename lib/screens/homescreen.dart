@@ -87,7 +87,7 @@ class _HomescreenState extends State<Homescreen> {
     } catch (e) {
       print('Error fetching username: $e');
       setState(() {
-        username = 'User'; // Fallback value
+        username = 'User'; 
       });
     }
   }

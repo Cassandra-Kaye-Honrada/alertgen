@@ -1,3 +1,4 @@
+import 'package:allergen/screens/edit_profile.dart';
 import 'package:allergen/screens/login.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/styleguide.dart';
@@ -27,13 +28,17 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _loadUserData() async {
-    await Future.wait([fetchUsername(), loadAllergenCount()]);
+    await Future.wait([fetchUserProfile(), loadAllergenCount()]);
     setState(() {
       isLoading = false;
     });
   }
 
-  Future<void> fetchUsername() async {
+  String firstName = '';
+  String lastName = '';
+  String? profileImageUrl;
+
+  Future<void> fetchUserProfile() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
       if (user != null) {
@@ -45,12 +50,15 @@ class _UserProfileState extends State<UserProfile> {
 
         if (userDoc.exists) {
           setState(() {
-            username = userDoc['username'] ?? 'User';
+            firstName = userDoc['firstName'] ?? '';
+            lastName = userDoc['lastName'] ?? '';
+            username = "$firstName $lastName";
+            profileImageUrl = userDoc['imageUrl'];
           });
         }
       }
     } catch (e) {
-      print('Error fetching username: $e');
+      print('Error fetching user profile: $e');
       setState(() {
         username = 'User';
       });
@@ -401,6 +409,16 @@ class _UserProfileState extends State<UserProfile> {
                                             icon: Icons.person_outline,
                                             label: 'Personal Details',
                                             showBorder: true,
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder:
+                                                      (_) =>
+                                                          EditProfileDetailsScreen(),
+                                                ),
+                                              );
+                                            },
                                           ),
                                           _buildSettingItem(
                                             icon: Icons.local_hospital_outlined,
@@ -510,17 +528,27 @@ class _UserProfileState extends State<UserProfile> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(60),
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: AppColors.primaryColor3,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.person,
-                              size: 60,
-                              color: Colors.white,
-                            ),
-                          ),
+                          child:
+                              profileImageUrl != null &&
+                                      profileImageUrl!.isNotEmpty
+                                  ? Image.network(
+                                    profileImageUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Icon(
+                                          Icons.person,
+                                          size: 60,
+                                          color: Colors.white,
+                                        ),
+                                  )
+                                  : Container(
+                                    color: AppColors.primaryColor3,
+                                    child: const Icon(
+                                      Icons.person,
+                                      size: 60,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                         ),
                       ),
                     ),
