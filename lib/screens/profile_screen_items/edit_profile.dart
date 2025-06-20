@@ -108,19 +108,23 @@ class _EditProfileDetailsScreenState extends State<EditProfileDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.defaultbackground,
       appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
         title: const Text(
           'Edit Profile',
           style: TextStyle(
             fontFamily: 'Poppins',
-            fontWeight: FontWeight.w500,
+            color: Colors.white,
             fontSize: 20,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: AppColors.primary,
-        elevation: 0.5,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {

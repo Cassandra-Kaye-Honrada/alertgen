@@ -1,0 +1,198 @@
+import 'package:flutter/material.dart';
+import 'package:allergen/styleguide.dart';
+
+
+class TermsAndConditionsScreen extends StatelessWidget {
+  const TermsAndConditionsScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+         backgroundColor: AppColors.defaultbackground,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        title: const Text(
+         'Terms and Conditions',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12.0),
+                border: Border.all(color: AppColors.dangerAlert.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: AppColors.dangerAlert,
+                    size: 32,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'IMPORTANT MEDICAL DISCLAIMER',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.dangerAlert,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'AlertGen is not a substitute for professional medical advice. Always consult healthcare professionals for allergy management.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textBlack,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            _buildSection(
+              'TERMS AND CONDITIONS',
+              'Last updated: ${DateTime.now().toString().split(' ')[0]}',
+              isHeader: true,
+            ),
+            
+            _buildSection(
+              '1. ACCEPTANCE OF TERMS',
+              'By downloading, installing, or using the AlertGen mobile application ("App"), you agree to be bound by these Terms and Conditions ("Terms"). If you do not agree to these Terms, do not use the App.',
+            ),
+
+            _buildSection(
+              '2. DESCRIPTION OF SERVICE',
+              'AlertGen is an AI-powered mobile application that uses Optical Character Recognition (OCR) and artificial intelligence to help identify potential allergens in food products. The App provides:\n\n• Ingredient scanning and analysis\n• Allergen detection alerts\n• Personalized allergy profiles\n• Food alternative suggestions\n• Emergency contact features\n• First aid guidance',
+            ),
+
+            _buildSection(
+              '3. MEDICAL DISCLAIMER AND LIMITATIONS',
+              'CRITICAL WARNING: AlertGen is NOT a medical device and should NOT be relied upon as the sole method for allergen detection. The App:\n\n• May not detect all allergens\n• Cannot identify cross-reactive allergens automatically\n• May produce false positives or false negatives\n• Depends on image quality and lighting conditions\n• Requires internet connectivity for full functionality\n\nYou acknowledge that:\n• The App\'s accuracy can be affected by poor lighting, image quality, or unclear labels\n• Regional and cultural recipe variations may cause misidentification\n• Cross-contamination risks are not detected\n• You remain solely responsible for your food safety decisions',
+            ),
+
+            _buildSection(
+              '4. USER RESPONSIBILITIES',
+              'You agree to:\n\n• Always verify allergen information independently\n• Consult healthcare professionals for allergy management\n• Keep your allergy profile updated and accurate\n• Use the App as a supplementary tool only\n• Report any adverse reactions to appropriate medical authorities\n• Not rely solely on the App for life-threatening allergy decisions',
+            ),
+
+            _buildSection(
+              '5. PRIVACY AND DATA COLLECTION',
+              'We collect and process:\n\n• Personal allergy information you provide\n• Images you capture for analysis\n• Usage data and app performance metrics\n• Device information for compatibility\n\nYour data is processed according to our Privacy Policy. Images may be temporarily stored for analysis but are not permanently retained unless you save them.',
+            ),
+
+            _buildSection(
+              '6. LIMITATION OF LIABILITY',
+              'TO THE MAXIMUM EXTENT PERMITTED BY LAW:\n\n• We disclaim all warranties, express or implied\n• We are not liable for any allergic reactions or health consequences\n• Our liability is limited to the amount you paid for the App (if any)\n• We are not responsible for third-party content or services\n• You use the App entirely at your own risk',
+            ),
+
+            _buildSection(
+              '7. TECHNICAL REQUIREMENTS',
+              'The App requires:\n\n• Android device with camera functionality\n• Internet connection for AI analysis\n• Sufficient device storage and processing power\n• Compatible Android version\n\nPerformance may vary based on device capabilities and network conditions.',
+            ),
+
+            _buildSection(
+              '8. PROHIBITED USES',
+              'You may not:\n\n• Use the App for commercial food production or distribution\n• Rely on the App for professional food service decisions\n• Attempt to reverse engineer or modify the App\n• Share your account credentials with others\n• Use the App in violation of applicable laws',
+            ),
+
+            _buildSection(
+              '9. UPDATES AND MODIFICATIONS',
+              'We may update the App and these Terms at any time. Continued use after updates constitutes acceptance of revised Terms. We recommend regularly checking for updates to maintain optimal performance.',
+            ),
+
+            _buildSection(
+              '10. TERMINATION',
+              'We may terminate or suspend your access to the App at any time for violation of these Terms. Upon termination, you must cease all use of the App and may lose access to saved data.',
+            ),
+
+            // _buildSection(
+            //   '11. GOVERNING LAW',
+            //   'These Terms are governed by the laws of [Your Jurisdiction]. Any disputes will be resolved in the courts of [Your Jurisdiction].',
+            // ),
+
+            _buildSection(
+              '11. EMERGENCY SITUATIONS',
+              'In case of allergic reactions or emergencies:\n\n• Seek immediate medical attention\n• Contact emergency services (911 or local equivalent)\n• Do not rely on the App\'s emergency features as primary response\n• Follow your healthcare provider\'s emergency action plan',
+            ),
+
+            _buildSection(
+              '12. CONTACT INFORMATION',
+              'For questions about these Terms, contact us at:\n\nEmail: alertgenn@gmail.com\n\nFor medical emergencies, contact your local emergency services immediately.',
+            ),
+
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, String content, {bool isHeader = false}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: isHeader ? 20 : 16,
+              fontWeight: FontWeight.w600,
+              color: isHeader ? AppColors.primary : AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            content,
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textBlack,
+              height: 1.5,
+              fontStyle: isHeader ? FontStyle.italic : FontStyle.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -21,30 +21,21 @@ class ScanHistoryScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.defaultbackground,
       appBar: AppBar(
-        backgroundColor: AppColors.defaultbackground,
+        backgroundColor: AppColors.primary,
         elevation: 0,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 27.0),
-          child: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_ios,
-              color: Colors.black,
-              size: 20,
-            ),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ),
         title: const Text(
           'Scan History',
           style: TextStyle(
             fontFamily: 'Poppins',
-            fontWeight: FontWeight.w700,
-            fontSize: 28,
-            color: Color(0xFF0B8FAC),
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        centerTitle: true,
-        toolbarHeight: 80,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _getHistoryStream(),
@@ -537,7 +528,7 @@ class ScanHistoryScreen extends StatelessWidget {
       );
 
       final File? imageFile = await _downloadAndCacheImage(fileName);
-      Navigator.of(context).pop(); 
+      Navigator.of(context).pop();
 
       if (imageFile == null) {
         print('Failed to download image: $fileName');

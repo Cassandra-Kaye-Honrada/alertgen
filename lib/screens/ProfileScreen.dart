@@ -1,13 +1,17 @@
-import 'package:allergen/screens/edit_profile.dart';
+import 'package:allergen/screens/profile_screen_items/edit_profile.dart';
 import 'package:allergen/screens/login.dart';
+import 'package:allergen/screens/profile_screen_items/about_screen.dart';
+import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../EmergencyContactScreen.dart';
-import 'AllergenProfileScreen.dart';
+import 'profile_screen_items/EmergencyContactScreen.dart';
+import 'profile_screen_items/AllergenProfileScreen.dart';
+import 'profile_screen_items/privacy_policy_screen.dart';
+import 'profile_screen_items/terms_and_condition';
 
 class UserProfile extends StatefulWidget {
   const UserProfile({Key? key}) : super(key: key);
@@ -20,6 +24,7 @@ class _UserProfileState extends State<UserProfile> {
   int _currentIndex = 2; // Profile is active
   String username = 'Loading...';
   int allergenCount = 0;
+  int scanHistoryCount = 0; // Added scan history count
   bool isLoading = true;
 
   @override
@@ -28,8 +33,20 @@ class _UserProfileState extends State<UserProfile> {
     _loadUserData();
   }
 
+  // Add this method to refresh data when returning from other screens
+  void _refreshUserData() {
+    setState(() {
+      isLoading = true;
+    });
+    _loadUserData();
+  }
+
   Future<void> _loadUserData() async {
-    await Future.wait([fetchUserProfile(), loadAllergenCount()]);
+    await Future.wait([
+      fetchUserProfile(),
+      loadAllergenCount(),
+      loadScanHistoryCount(), // Added scan history count loading
+    ]);
     setState(() {
       isLoading = false;
     });
@@ -88,6 +105,45 @@ class _UserProfileState extends State<UserProfile> {
         allergenCount = 0;
       });
     }
+  }
+
+  // Added method to load scan history count
+  Future<void> loadScanHistoryCount() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        QuerySnapshot historySnapshot =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('history')
+                .get();
+
+        setState(() {
+          scanHistoryCount = historySnapshot.docs.length;
+        });
+      }
+    } catch (e) {
+      print('Error loading scan history count: $e');
+      setState(() {
+        scanHistoryCount = 0;
+      });
+    }
+  }
+
+  // Stream method for real-time history updates (if needed elsewhere)
+  Stream<QuerySnapshot> _getHistoryStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw Exception('User not authenticated');
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('history')
+        .orderBy('timestamp', descending: true)
+        .snapshots();
   }
 
   void _scanAction() {
@@ -212,449 +268,489 @@ class _UserProfileState extends State<UserProfile> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Container(
-                color: AppColors.primaryColor3,
-                child: Stack(
-                  children: [
-                    Column(
-                      children: [
-                        // Header section with profile
-                        Padding(
-                          padding: const EdgeInsets.only(top: 40),
-                          child: Column(
-                            children: [
-                              // Profile title
-                              const Text(
-                                'Profile',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 28,
-                                  fontFamily: 'Poppins',
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 75),
-                            ],
-                          ),
-                        ),
-                        // White content section
-                        Container(
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.only(
-                              topLeft: Radius.circular(28),
-                              topRight: Radius.circular(28),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _loadUserData();
+        },
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                physics:
+                    const AlwaysScrollableScrollPhysics(), // Changed for pull-to-refresh
+                child: Container(
+                  color: AppColors.primaryColor3,
+                  child: Stack(
+                    children: [
+                      Column(
+                        children: [
+                          // Header section with profile
+                          Padding(
+                            padding: const EdgeInsets.only(top: 40),
                             child: Column(
                               children: [
-                                const SizedBox(height: 50),
-                                // User name - now displays fetched username
-                                Text(
-                                  username,
-                                  style: const TextStyle(
-                                    color: AppColors.primaryColor3,
-                                    fontSize: 26,
+                                // Profile title
+                                const Text(
+                                  'Profile',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 28,
                                     fontFamily: 'Poppins',
                                     fontWeight: FontWeight.w700,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                const SizedBox(height: 20),
-                                // Stats section
-                                Container(
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF1AA2CC),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 30,
-                                    vertical: 20,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      // Allergen section - now displays actual count
-                                      Expanded(
-                                        child: Column(
-                                          children: [
-                                            Container(
-                                              width: 40,
-                                              height: 40,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(
-                                                  0.2,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                              child: const Icon(
-                                                Icons.warning_amber_rounded,
-                                                color: Colors.white,
-                                                size: 24,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              'ALLERGEN',
-                                              style: TextStyle(
-                                                color: Colors.white.withOpacity(
-                                                  0.7,
-                                                ),
-                                                fontSize: 12,
-                                                fontFamily: 'Poppins',
-                                                fontWeight: FontWeight.w500,
-                                                letterSpacing: 0.5,
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                            Text(
-                                              isLoading
-                                                  ? '...'
-                                                  : '$allergenCount',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 24,
-                                                fontFamily: 'Poppins',
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      // Divider
-                                      Container(
-                                        width: 1,
-                                        height: 60,
-                                        color: Colors.white.withOpacity(0.3),
-                                      ),
-                                      // Scan history section
-                                      Expanded(
-                                        child: Column(
-                                          children: [
-                                            Container(
-                                              width: 40,
-                                              height: 40,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(
-                                                  0.2,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                              child: const Icon(
-                                                Icons.history,
-                                                color: Colors.white,
-                                                size: 24,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              'SCAN HISTORY',
-                                              style: TextStyle(
-                                                color: Colors.white.withOpacity(
-                                                  0.7,
-                                                ),
-                                                fontSize: 12,
-                                                fontFamily: 'Poppins',
-                                                fontWeight: FontWeight.w500,
-                                                letterSpacing: 0.5,
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                            const Text(
-                                              '10',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 24,
-                                                fontFamily: 'Poppins',
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-                                // Settings list
-                                Column(
-                                  children: [
-                                    // First settings group
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: const Color(0xFFE5E7EB),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        children: [
-                                          _buildSettingItem(
-                                            icon: Icons.person_outline,
-                                            label: 'Personal Details',
-                                            showBorder: true,
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder:
-                                                      (_) =>
-                                                          EditProfileDetailsScreen(),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          _buildSettingItem(
-                                            icon: Icons.local_hospital_outlined,
-                                            label: 'Allergen Profile',
-                                            showBorder: true,
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder:
-                                                      (_) =>
-                                                          AllergenProfileScreen(),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          _buildSettingItem(
-                                            icon: Icons.history,
-                                            label: 'Scan History',
-                                            showBorder: false,
-                                          ),
-                                          _buildSettingItem(
-                                            icon: Icons.phone,
-                                            label: 'Emergency Contact',
-                                            showBorder: false,
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder:
-                                                      (_) =>
-                                                          EmergencyContactScreen(),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    // Second settings group
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: const Color(0xFFE5E7EB),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        children: [
-                                          _buildSettingItem(
-                                            icon: Icons.info_outline,
-                                            label: 'About',
-                                            showBorder: true,
-                                          ),
-                                          _buildSettingItem(
-                                            icon: Icons.help_center_outlined,
-                                            label: 'Help Center',
-                                            showBorder: false,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    // Privacy
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: const Color(0xFFE5E7EB),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: _buildSettingItem(
-                                        icon: Icons.shield_outlined,
-                                        label: 'Privacy',
-                                        showBorder: false,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    // Logout
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: const Color(0xFFE5E7EB),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: _buildSettingItem(
-                                        icon: Icons.logout,
-                                        label: 'Log out',
-                                        showBorder: false,
-                                        textColor: const Color(0xFFEF4444),
-                                        onTap: _showLogoutDialog,
-                                      ),
-                                    ),
-                                    const SizedBox(
-                                      height: 120,
-                                    ), // Extra space for bottom navigation
-                                  ],
-                                ),
+                                const SizedBox(height: 75),
                               ],
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    Positioned(
-                      top: 100,
-                      left: MediaQuery.sizeOf(context).width / 2 - 60,
-                      child: Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(60),
-                          child:
-                              profileImageUrl != null &&
-                                      profileImageUrl!.isNotEmpty
-                                  ? Image.network(
-                                    profileImageUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) => Icon(
-                                          Icons.person,
-                                          size: 60,
-                                          color: Colors.white,
+                          // White content section
+                          Container(
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(28),
+                                topRight: Radius.circular(28),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                children: [
+                                  const SizedBox(height: 50),
+                                  // User name - now displays fetched username
+                                  Text(
+                                    username,
+                                    style: const TextStyle(
+                                      color: AppColors.primaryColor3,
+                                      fontSize: 26,
+                                      fontFamily: 'Poppins',
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 20),
+                                  // Stats section
+                                  Container(
+                                    width: double.infinity,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1AA2CC),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 30,
+                                      vertical: 20,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        // Allergen section - now displays actual count
+                                        Expanded(
+                                          child: Column(
+                                            children: [
+                                              Container(
+                                                width: 40,
+                                                height: 40,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withOpacity(0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'ALLERGEN',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.7),
+                                                  fontSize: 12,
+                                                  fontFamily: 'Poppins',
+                                                  fontWeight: FontWeight.w500,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              Text(
+                                                isLoading
+                                                    ? '...'
+                                                    : '$allergenCount',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 24,
+                                                  fontFamily: 'Poppins',
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                  )
-                                  : Container(
-                                    color: AppColors.primaryColor3,
-                                    child: const Icon(
-                                      Icons.person,
-                                      size: 60,
-                                      color: Colors.white,
+                                        // Divider
+                                        Container(
+                                          width: 1,
+                                          height: 60,
+                                          color: Colors.white.withOpacity(0.3),
+                                        ),
+                                        // Scan history section - now displays actual count
+                                        Expanded(
+                                          child: Column(
+                                            children: [
+                                              Container(
+                                                width: 40,
+                                                height: 40,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withOpacity(0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.history,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'SCAN HISTORY',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.7),
+                                                  fontSize: 12,
+                                                  fontFamily: 'Poppins',
+                                                  fontWeight: FontWeight.w500,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              Text(
+                                                isLoading
+                                                    ? '...'
+                                                    : '$scanHistoryCount', // Updated to show actual count
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 24,
+                                                  fontFamily: 'Poppins',
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
+                                  const SizedBox(height: 24),
+                                  // Settings list
+                                  Column(
+                                    children: [
+                                      // First settings group
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFE5E7EB),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            _buildSettingItem(
+                                              icon: Icons.person_outline,
+                                              label: 'Personal Details',
+                                              showBorder: true,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            EditProfileDetailsScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            _buildSettingItem(
+                                              icon:
+                                                  Icons.local_hospital_outlined,
+                                              label: 'Allergen Profile',
+                                              showBorder: true,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            AllergenProfileScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            _buildSettingItem(
+                                              icon: Icons.history,
+                                              label: 'Scan History',
+                                              showBorder: true,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            ScanHistoryScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            _buildSettingItem(
+                                              icon: Icons.phone,
+                                              label: 'Emergency Contact',
+                                              showBorder: false,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            EmergencyContactScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      // Second settings group
+
+                                      // Privacy
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFE5E7EB),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            _buildSettingItem(
+                                              icon: Icons.shield_outlined,
+                                              label: 'Privacy Policy',
+                                              showBorder: true,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            PrivacyPolicyScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            _buildSettingItem(
+                                              icon: Icons.article,
+                                              label: 'Terms and Condition ',
+                                              showBorder: true,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            TermsAndConditionsScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            _buildSettingItem(
+                                              icon: Icons.info_outline,
+                                              label: 'About',
+                                              showBorder: false,
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) => AboutScreen(),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      // Logout
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFE5E7EB),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: _buildSettingItem(
+                                          icon: Icons.logout,
+                                          label: 'Log out',
+                                          showBorder: false,
+                                          textColor: const Color(0xFFEF4444),
+                                          onTap: _showLogoutDialog,
+                                        ),
+                                      ),
+                                      const SizedBox(
+                                        height: 120,
+                                      ), // Extra space for bottom navigation
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        top: 100,
+                        left: MediaQuery.sizeOf(context).width / 2 - 60,
+                        child: Container(
+                          width: 120,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(60),
+                            child:
+                                profileImageUrl != null &&
+                                        profileImageUrl!.isNotEmpty
+                                    ? Image.network(
+                                      profileImageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) => Icon(
+                                            Icons.person,
+                                            size: 60,
+                                            color: Colors.white,
+                                          ),
+                                    )
+                                    : Container(
+                                      color: AppColors.primaryColor3,
+                                      child: const Icon(
+                                        Icons.person,
+                                        size: 60,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          // Bottom Navigation - Fixed positioning
-          Container(
-            margin: const EdgeInsets.all(20),
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(40),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Home button (left side)
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _currentIndex = 0;
-                    });
-                    Navigator.pop(context);
-                  },
-                  child: Image.asset(
-                    'assets/navigation/menu_inactive.png',
-                    width: 24,
-                    height: 24,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.home,
-                        color: Color(0xFF64748B),
-                        size: 24,
-                      );
-                    },
+            // Bottom Navigation - Fixed positioning
+            Container(
+              margin: const EdgeInsets.all(20),
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(40),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 2),
                   ),
-                ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Home button (left side)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _currentIndex = 0;
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: Image.asset(
+                      'assets/navigation/menu_inactive.png',
+                      width: 24,
+                      height: 24,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.home,
+                          color: Color(0xFF64748B),
+                          size: 24,
+                        );
+                      },
+                    ),
+                  ),
 
-                // Scan button (center)
-                GestureDetector(
-                  onTap: _scanAction,
-                  child: Image.asset(
-                    'assets/navigation/scan_inactive.png',
-                    width: 24,
-                    height: 24,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.camera_alt,
-                        color: Color(0xFF64748B),
-                        size: 24,
-                      );
-                    },
+                  // Scan button (center)
+                  GestureDetector(
+                    onTap: _scanAction,
+                    child: Image.asset(
+                      'assets/navigation/scan_inactive.png',
+                      width: 24,
+                      height: 24,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.camera_alt,
+                          color: Color(0xFF64748B),
+                          size: 24,
+                        );
+                      },
+                    ),
                   ),
-                ),
 
-                // Profile/User button (right side)
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _currentIndex = 2;
-                    });
-                  },
-                  child: Image.asset(
-                    'assets/navigation/profile_active.png',
-                    width: 24,
-                    height: 24,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.person,
-                        color: Color(0xFF00BCD4),
-                        size: 24,
-                      );
+                  // Profile/User button (right side)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _currentIndex = 2;
+                      });
                     },
+                    child: Image.asset(
+                      'assets/navigation/profile_active.png',
+                      width: 24,
+                      height: 24,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.person,
+                          color: Color(0xFF00BCD4),
+                          size: 24,
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

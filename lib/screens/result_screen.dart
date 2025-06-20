@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:ui';
-import 'package:allergen/scanHistoryScreen.dart';
+import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/ingredientmodal.dart';
 import 'package:allergen/screens/scan_screen.dart';

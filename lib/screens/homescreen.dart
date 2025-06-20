@@ -1,4 +1,4 @@
-import 'package:allergen/scanHistoryScreen.dart';
+import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/emergencyScreen.dart';
@@ -13,7 +13,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
-import 'AllergenProfileScreen.dart';
+import 'profile_screen_items/AllergenProfileScreen.dart';
 
 class Homescreen extends StatefulWidget {
   @override

@@ -536,83 +536,26 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
     }
   }
 
-  Future<void> _saveAllChanges() async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        WriteBatch batch = FirebaseFirestore.instance.batch();
-
-        CollectionReference profileRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('profile');
-
-        QuerySnapshot existingAllergens =
-            await profileRef.where('type', isEqualTo: 'allergen').get();
-        for (QueryDocumentSnapshot doc in existingAllergens.docs) {
-          batch.delete(doc.reference);
-        }
-
-        for (String allergen in selectedAllergens) {
-          DocumentReference allergenDoc = profileRef.doc();
-          batch.set(allergenDoc, {
-            'name': allergen,
-            'severity': allergenSeverity[allergen] ?? 0.5,
-            'createdAt': FieldValue.serverTimestamp(),
-            'type': 'allergen',
-          });
-        }
-
-        await batch.commit();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'All allergens saved successfully!',
-              style: TextStyle(fontFamily: 'Poppins'),
-            ),
-            backgroundColor: AppColors.primaryColor3,
-          ),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Error saving allergens: $e',
-            style: const TextStyle(fontFamily: 'Poppins'),
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.defaultbackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.primary,
         elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(
-            Icons.arrow_back_ios,
-            color: Color(0xFF374151),
-            size: 20,
-          ),
-        ),
         title: const Text(
           'Allergen Profile',
           style: TextStyle(
-            color: Color(0xFF0EA5E9),
-            fontSize: 20,
             fontFamily: 'Poppins',
+            color: Colors.white,
+            fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
         ),
-        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: SingleChildScrollView(
         child: Padding(
