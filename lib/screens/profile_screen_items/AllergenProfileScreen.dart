@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:allergen/styleguide.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class AllergenProfileScreen extends StatefulWidget {
   const AllergenProfileScreen({Key? key}) : super(key: key);
@@ -15,7 +17,10 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
   Set<String> selectedAllergens = {};
   Map<String, double> allergenSeverity = {};
   List<String> filteredAllergens = [];
+  List<String> fdaIngredients = [];
+  List<String> savedAllergens = [];
   bool isLoading = true;
+  bool isSearchingFDA = false;
   bool isGeneralProductAllergensEnabled = true;
 
   final List<String> commonAllergens = [
@@ -29,6 +34,19 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
     'Shrimp',
     'Nuts',
     'Wheat',
+  ];
+
+  // FDA major allergens as defined by FALCPA
+  final List<String> fdaMajorAllergens = [
+    'Milk',
+    'Eggs',
+    'Fish',
+    'Crustacean shellfish',
+    'Tree nuts',
+    'Peanuts',
+    'Wheat',
+    'Soybeans',
+    'Sesame',
   ];
 
   @override
@@ -46,21 +64,282 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
     super.dispose();
   }
 
+  List<String> _getAllAllergens() {
+    Set<String> allAllergens = {};
+    allAllergens.addAll(commonAllergens);
+    allAllergens.addAll(savedAllergens);
+    return allAllergens.toList();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+  }
+
   void _onSearchChanged() {
-    setState(() {
-      if (_searchController.text.isEmpty) {
-        filteredAllergens = List.from(commonAllergens);
-      } else {
+    String searchTerm = _searchController.text.trim();
+
+    if (searchTerm.isEmpty) {
+      setState(() {
+        _updateFilteredAllergens();
+        isSearchingFDA = false;
+      });
+    } else if (searchTerm.length >= 2) {
+      _searchFDAIngredients(searchTerm);
+    } else {
+      setState(() {
         filteredAllergens =
-            commonAllergens
+            _getAllAllergens()
                 .where(
-                  (allergen) => allergen.toLowerCase().contains(
-                    _searchController.text.toLowerCase(),
-                  ),
+                  (allergen) =>
+                      allergen.toLowerCase().contains(searchTerm.toLowerCase()),
                 )
                 .toList();
-      }
+        isSearchingFDA = false;
+      });
+    }
+  }
+
+  void _updateFilteredAllergens() {
+    filteredAllergens = _getAllAllergens();
+  }
+
+  Future<void> _searchFDAIngredients(String searchTerm) async {
+    setState(() {
+      isSearchingFDA = true;
     });
+
+    try {
+      // Search FDA drug labels for ingredients and active ingredients
+      List<String> searchFields = [
+        'active_ingredient',
+        'inactive_ingredient',
+        'substance_name',
+        'openfda.substance_name',
+        'openfda.generic_name',
+      ];
+
+      Set<String> foundIngredients = {};
+
+      // Search multiple fields for comprehensive results
+      for (String field in searchFields) {
+        try {
+          final response = await http.get(
+            Uri.parse(
+              'https://api.fda.gov/drug/label.json?search=$field:"$searchTerm"&limit=50',
+            ),
+          );
+
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+
+            if (data['results'] != null) {
+              for (var result in data['results']) {
+                // Extract ingredients from various fields
+                _extractIngredientsFromResult(
+                  result,
+                  searchTerm,
+                  foundIngredients,
+                );
+              }
+            }
+          }
+        } catch (e) {
+          print('Error searching $field: $e');
+          continue;
+        }
+      }
+
+      // Also search for partial matches in ingredient lists
+      try {
+        final broadResponse = await http.get(
+          Uri.parse(
+            'https://api.fda.gov/drug/label.json?search=active_ingredient:*$searchTerm*+OR+inactive_ingredient:*$searchTerm*&limit=30',
+          ),
+        );
+
+        if (broadResponse.statusCode == 200) {
+          final broadData = json.decode(broadResponse.body);
+          if (broadData['results'] != null) {
+            for (var result in broadData['results']) {
+              _extractIngredientsFromResult(
+                result,
+                searchTerm,
+                foundIngredients,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        print('Error in broad search: $e');
+      }
+
+      // Add major FDA allergens that match search
+      for (String allergen in fdaMajorAllergens) {
+        if (allergen.toLowerCase().contains(searchTerm.toLowerCase())) {
+          foundIngredients.add(allergen);
+        }
+      }
+
+      setState(() {
+        fdaIngredients = foundIngredients.toList();
+
+        // Combine common allergens with FDA results for filtered list
+        Set<String> combinedAllergens = {};
+
+        // Add matching saved/common allergens
+        combinedAllergens.addAll(
+          _getAllAllergens().where(
+            (allergen) =>
+                allergen.toLowerCase().contains(searchTerm.toLowerCase()),
+          ),
+        );
+
+        // Add FDA ingredients
+        combinedAllergens.addAll(fdaIngredients);
+
+        filteredAllergens = combinedAllergens.toList();
+        isSearchingFDA = false;
+      });
+    } catch (e) {
+      print('Error searching FDA: $e');
+      // Fallback to local search
+      setState(() {
+        filteredAllergens =
+            _getAllAllergens()
+                .where(
+                  (allergen) =>
+                      allergen.toLowerCase().contains(searchTerm.toLowerCase()),
+                )
+                .toList();
+        isSearchingFDA = false;
+      });
+    }
+  }
+
+  void _extractIngredientsFromResult(
+    Map<String, dynamic> result,
+    String searchTerm,
+    Set<String> foundIngredients,
+  ) {
+    // Extract from active_ingredient
+    if (result['active_ingredient'] != null) {
+      for (var ingredient in result['active_ingredient']) {
+        String ingredientName = '';
+        if (ingredient is String) {
+          ingredientName = ingredient;
+        } else if (ingredient is Map && ingredient['name'] != null) {
+          ingredientName = ingredient['name'].toString();
+        }
+
+        if (ingredientName.isNotEmpty) {
+          List<String> extracted = _extractPotentialAllergens(
+            ingredientName,
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+
+    // Extract from inactive_ingredient
+    if (result['inactive_ingredient'] != null) {
+      for (var ingredient in result['inactive_ingredient']) {
+        String ingredientName = ingredient.toString();
+        if (ingredientName.isNotEmpty) {
+          List<String> extracted = _extractPotentialAllergens(
+            ingredientName,
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+
+    // Extract from openfda fields
+    if (result['openfda'] != null) {
+      var openfda = result['openfda'];
+
+      if (openfda['substance_name'] != null) {
+        for (var substance in openfda['substance_name']) {
+          List<String> extracted = _extractPotentialAllergens(
+            substance.toString(),
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+
+      if (openfda['generic_name'] != null) {
+        for (var name in openfda['generic_name']) {
+          List<String> extracted = _extractPotentialAllergens(
+            name.toString(),
+            searchTerm,
+          );
+          foundIngredients.addAll(extracted);
+        }
+      }
+    }
+  }
+
+  List<String> _extractPotentialAllergens(String text, String searchTerm) {
+    List<String> allergens = [];
+    String lowerText = text.toLowerCase();
+    String lowerSearchTerm = searchTerm.toLowerCase();
+
+    // If the text contains the search term, process it
+    if (lowerText.contains(lowerSearchTerm)) {
+      // Clean and format the ingredient name
+      String cleanedText = _cleanIngredientName(text);
+
+      if (cleanedText.isNotEmpty && cleanedText.length <= 50) {
+        // Reasonable length limit
+        allergens.add(cleanedText);
+      }
+
+      // Also extract individual words that contain the search term
+      List<String> words = text.split(RegExp(r'[,;()\[\]\s]+'));
+      for (String word in words) {
+        String cleanWord = _cleanIngredientName(word);
+        if (cleanWord.toLowerCase().contains(lowerSearchTerm) &&
+            cleanWord.length >= 3 &&
+            cleanWord.length <= 30) {
+          allergens.add(cleanWord);
+        }
+      }
+    }
+
+    return allergens;
+  }
+
+  String _cleanIngredientName(String text) {
+    // Remove common pharmaceutical suffixes and prefixes
+    String cleaned =
+        text
+            .replaceAll(
+              RegExp(
+                r'\b(hydrochloride|hcl|sulfate|sodium|mg|mcg|iu)\b',
+                caseSensitive: false,
+              ),
+              '',
+            )
+            .replaceAll(
+              RegExp(r'[^\w\s-]'),
+              '',
+            ) // Remove special chars except hyphens
+            .replaceAll(RegExp(r'\s+'), ' ') // Normalize spaces
+            .trim();
+
+    // Capitalize first letter of each word
+    return cleaned
+        .split(' ')
+        .map(
+          (word) =>
+              word.isNotEmpty
+                  ? word[0].toUpperCase() + word.substring(1).toLowerCase()
+                  : '',
+        )
+        .where((word) => word.isNotEmpty)
+        .join(' ');
   }
 
   Future<void> _loadUserAllergens() async {
@@ -78,6 +357,7 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
         setState(() {
           selectedAllergens.clear();
           allergenSeverity.clear();
+          savedAllergens.clear();
 
           for (QueryDocumentSnapshot doc in snapshot.docs) {
             Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
@@ -87,13 +367,14 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
             if (allergenName.isNotEmpty) {
               selectedAllergens.add(allergenName);
               allergenSeverity[allergenName] = severity;
+              savedAllergens.add(allergenName);
 
               if (!commonAllergens.contains(allergenName)) {
                 commonAllergens.add(allergenName);
-                filteredAllergens = List.from(commonAllergens);
               }
             }
           }
+          _updateFilteredAllergens();
           isLoading = false;
         });
       }
@@ -329,12 +610,13 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
                                     currentSeverity;
 
                                 if (isManualAdd &&
-                                    !commonAllergens.contains(finalAllergen)) {
-                                  commonAllergens.add(finalAllergen);
-                                  filteredAllergens = List.from(
-                                    commonAllergens,
-                                  );
+                                    !savedAllergens.contains(finalAllergen)) {
+                                  savedAllergens.add(finalAllergen);
                                 }
+                                if (!commonAllergens.contains(finalAllergen)) {
+                                  commonAllergens.add(finalAllergen);
+                                }
+                                _updateFilteredAllergens();
                               });
 
                               await _saveAllergenToFirebase(
@@ -403,6 +685,10 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
                 'severity': severity,
                 'type': 'allergen',
                 'createdAt': FieldValue.serverTimestamp(),
+                'source':
+                    fdaIngredients.contains(allergenName)
+                        ? 'FDA_DRUG'
+                        : 'manual',
               });
         }
 
@@ -510,6 +796,8 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
         setState(() {
           selectedAllergens.remove(allergenName);
           allergenSeverity.remove(allergenName);
+          savedAllergens.remove(allergenName);
+          _updateFilteredAllergens();
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -557,15 +845,337 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // General Product Allergens Toggle
-              Container(
-                padding: const EdgeInsets.all(16),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          // General Product Allergens Toggle
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'General Product Allergens',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF374151),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Enable the filter to view all allergens including those affecting you.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w400,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: isGeneralProductAllergensEnabled,
+                  onChanged: (value) {
+                    setState(() {
+                      isGeneralProductAllergensEnabled = value;
+                    });
+                  },
+                  activeColor: const Color(0xFF0EA5E9),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Title and Search Bar
+          const Text(
+            'Search for allergens and drug ingredients',
+            style: TextStyle(
+              fontSize: 18,
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF374151),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Search Bar
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search ingredients...',
+                hintStyle: const TextStyle(
+                  color: Color(0xFF9CA3AF),
+                  fontSize: 14,
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w400,
+                ),
+                prefixIcon:
+                    isSearchingFDA
+                        ? Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.primaryColor3,
+                              ),
+                            ),
+                          ),
+                        )
+                        : const Icon(
+                          Icons.search,
+                          color: Color(0xFF9CA3AF),
+                          size: 20,
+                        ),
+                suffixIcon:
+                    _searchController.text.isNotEmpty
+                        ? IconButton(
+                          icon: const Icon(
+                            Icons.clear,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                          onPressed: _clearSearch,
+                          tooltip: 'Clear search',
+                        )
+                        : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ),
+
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => showAllergenModal('', isManualAdd: true),
+              child: const Text(
+                'Not here? Manually add',
+                style: TextStyle(
+                  color: Color(0xFF0EA5E9),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  fontFamily: 'Poppins',
+                ),
+              ),
+            ),
+          ),
+
+          // Available Allergens (Search Results)
+          if (_searchController.text.isNotEmpty &&
+              filteredAllergens.isNotEmpty) ...[
+            const Text(
+              'Available Allergens',
+              style: TextStyle(
+                fontSize: 16,
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filteredAllergens.length,
+              itemBuilder: (context, index) {
+                final allergen = filteredAllergens[index];
+                final isSelected = selectedAllergens.contains(allergen);
+                final isFromFDA = fdaIngredients.contains(allergen);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color:
+                          isSelected
+                              ? AppColors.primaryColor3
+                              : const Color(0xFFE5E7EB),
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => showAllergenModal(allergen),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    allergen,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      fontFamily: 'Poppins',
+                                      color:
+                                          isSelected
+                                              ? AppColors.primaryColor3
+                                              : const Color(0xFF374151),
+                                    ),
+                                  ),
+                                  if (isSelected) ...[
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _getSeverityColor(
+                                          allergenSeverity[allergen] ?? 0.5,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        _getSeverityLabel(
+                                          allergenSeverity[allergen] ?? 0.5,
+                                        ),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                          fontFamily: 'Poppins',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              isSelected
+                                  ? Icons.check_circle
+                                  : Icons.add_circle_outline,
+                              color:
+                                  isSelected
+                                      ? AppColors.primaryColor3
+                                      : const Color(0xFF9CA3AF),
+                              size: 20,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+
+          const SizedBox(height: 24),
+
+          // Active Allergens
+          if (isLoading)
+            const Center(
+              child: CircularProgressIndicator(color: Color(0xFF0EA5E9)),
+            )
+          else if (selectedAllergens.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No allergens added yet',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      fontFamily: 'Poppins',
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add allergens to help us recommend better products for you',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontFamily: 'Poppins',
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            const Text(
+              'Your Allergens',
+              style: TextStyle(
+                fontSize: 16,
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...selectedAllergens.map((allergen) {
+              return Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -577,262 +1187,77 @@ class _AllergenProfileScreenState extends State<AllergenProfileScreen> {
                     ),
                   ],
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => showAllergenModal(allergen),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
                         children: [
-                          const Text(
-                            'General Product Allergens',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF374151),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  allergen,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Poppins',
+                                    color: Color(0xFF374151),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getSeverityColor(
+                                      allergenSeverity[allergen] ?? 0.5,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    _getSeverityLabel(
+                                      allergenSeverity[allergen] ?? 0.5,
+                                    ),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      fontFamily: 'Poppins',
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Enable the filter to view all allergens including those affecting you.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w400,
-                              color: Colors.grey[600],
+                          const SizedBox(width: 8),
+                          IconButton(
+                            onPressed: () => _showRemoveConfirmation(allergen),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Color(0xFFEF4444),
+                              size: 20,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Switch(
-                      value: isGeneralProductAllergensEnabled,
-                      onChanged: (value) {
-                        setState(() {
-                          isGeneralProductAllergensEnabled = value;
-                        });
-                      },
-                      activeColor: const Color(0xFF0EA5E9),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Title and Description
-              const Text(
-                'Pick what allergen you have',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontFamily: 'Poppins',
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF374151),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Search Bar
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: const InputDecoration(
-                    hintText: 'Search for Allergens',
-                    hintStyle: TextStyle(
-                      color: Color(0xFF9CA3AF),
-                      fontSize: 14,
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w400,
-                    ),
-                    prefixIcon: Icon(
-                      Icons.search,
-                      color: Color(0xFF9CA3AF),
-                      size: 20,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
                   ),
                 ),
-              ),
+              );
+            }).toList(),
+          ],
 
-              // "Not here? Manually add" button
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => showAllergenModal('', isManualAdd: true),
-                  child: const Text(
-                    'Not here? Manually add',
-                    style: TextStyle(
-                      color: Color(0xFF0EA5E9),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      fontFamily: 'Poppins',
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Active Allergens Display
-              if (isLoading)
-                const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF0EA5E9)),
-                )
-              else if (selectedAllergens.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 48,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No allergens added yet',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          fontFamily: 'Poppins',
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Add allergens to help us recommend better products for you',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontFamily: 'Poppins',
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Column(
-                  children:
-                      selectedAllergens.map((allergen) {
-                        return Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => showAllergenModal(allergen),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            allergen,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600,
-                                              fontFamily: 'Poppins',
-                                              color: Color(0xFF374151),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: _getSeverityColor(
-                                                allergenSeverity[allergen] ??
-                                                    0.5,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                            ),
-                                            child: Text(
-                                              _getSeverityLabel(
-                                                allergenSeverity[allergen] ??
-                                                    0.5,
-                                              ),
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w500,
-                                                fontFamily: 'Poppins',
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    IconButton(
-                                      onPressed:
-                                          () =>
-                                              _showRemoveConfirmation(allergen),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Color(0xFFEF4444),
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                ),
-
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
+          const SizedBox(height: 40),
+        ],
       ),
     );
   }

@@ -87,7 +87,7 @@ class _HomescreenState extends State<Homescreen> {
     } catch (e) {
       print('Error fetching username: $e');
       setState(() {
-        username = 'User'; 
+        username = 'User';
       });
     }
   }
@@ -530,7 +530,9 @@ class _HomescreenState extends State<Homescreen> {
                 onTap:
                     () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => AllergenProfileScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => AllergenProfileScreen(),
+                      ),
                     ),
                 child: Text(
                   '${allergens.length} allergen${allergens.length > 1 ? 's' : ''}',
@@ -572,52 +574,57 @@ class _HomescreenState extends State<Homescreen> {
   Widget _buildAllergenIcon(Map<String, dynamic> allergenData) {
     return Container(
       margin: EdgeInsets.only(right: 16),
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Color(0xFFF0F9FF),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Color(0xFFE0F2FE)),
-                ),
-                child: _getAllergenIcon(allergenData['name']),
-              ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Container(
-                  width: 12,
-                  height: 12,
+      child: IntrinsicHeight(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: _getSeverityColor(allergenData['severity']),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white),
+                    color: Color(0xFFF0F9FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Color(0xFFE0F2FE)),
+                  ),
+                  child: _getAllergenIcon(allergenData['name']),
+                ),
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: _getSeverityColor(allergenData['severity']),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          SizedBox(height: 8),
-          Container(
-            width: 66,
-            child: Text(
-              allergenData['name'],
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-                fontWeight: FontWeight.w500,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 2,
+              ],
             ),
-          ),
-        ],
+            SizedBox(height: 8),
+            Flexible(
+              child: Container(
+                width: 66,
+                child: Text(
+                  allergenData['name'],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
