@@ -1,6 +1,7 @@
 import 'package:allergen/screens/onboarding.dart';
 import 'package:allergen/screens/reset_password.dart';
 import 'package:allergen/screens/signupscreen.dart';
+import 'package:allergen/screens/verify_google.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:email_validator/email_validator.dart';
@@ -33,13 +34,30 @@ class LoginScreenState extends State<LoginScreen> {
           password: passwordController.text,
         );
 
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => OnboardingScreen()),
-        );
+        User? user = auth.currentUser;
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Signed in successfully')));
+        if (user != null && !user.emailVerified) {
+          await user.sendEmailVerification();
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Verification email sent.')),
+          );
+
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder:
+                  (_) => VerifyEmailScreen(email: user.email ?? 'your email'),
+            ),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => OnboardingScreen()),
+          );
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Signed in successfully')),
+          );
+        }
       } on FirebaseAuthException catch (e) {
         String message;
         switch (e.code) {
@@ -71,8 +89,9 @@ class LoginScreenState extends State<LoginScreen> {
 
   void signInWithGoogle() async {
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      await GoogleSignIn().signOut();
 
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) return;
 
       final GoogleSignInAuthentication googleAuth =
@@ -83,24 +102,31 @@ class LoginScreenState extends State<LoginScreen> {
         idToken: googleAuth.idToken,
       );
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithCredential(credential);
 
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => OnboardingScreen()));
+      final user = userCredential.user;
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(email: user?.email ?? 'your email'),
+        ),
+      );
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Signed in with Google')));
+      ).showSnackBar(const SnackBar(content: Text('Signed in with Google')));
     } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Google sign-in failed')));
+      ).showSnackBar(const SnackBar(content: Text('Google sign-in failed')));
     }
   }
 
   void signInWithFacebook() async {
-    // TODO: Implement Facebook sign-in
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Facebook sign-in coming soon')),
+    );
   }
 
   void navigateToSignUp() {
@@ -162,13 +188,18 @@ class LoginScreenState extends State<LoginScreen> {
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
+                    fontFamily: 'Poppins',
                   ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'Welcome back! Please enter your details.',
-                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                    fontFamily: 'Poppins',
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
@@ -178,6 +209,7 @@ class LoginScreenState extends State<LoginScreen> {
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: Colors.black87,
+                    fontFamily: 'Poppins',
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -191,6 +223,7 @@ class LoginScreenState extends State<LoginScreen> {
                               : (EmailValidator.validate(value)
                                   ? null
                                   : 'Enter a valid email'),
+                  style: const TextStyle(fontFamily: 'Poppins'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -217,6 +250,7 @@ class LoginScreenState extends State<LoginScreen> {
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: Colors.black87,
+                    fontFamily: 'Poppins',
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -228,6 +262,7 @@ class LoginScreenState extends State<LoginScreen> {
                           value == null || value.isEmpty
                               ? 'Please enter password'
                               : null,
+                  style: const TextStyle(fontFamily: 'Poppins'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -278,7 +313,11 @@ class LoginScreenState extends State<LoginScreen> {
                         ),
                         const Text(
                           'Remember me',
-                          style: TextStyle(fontSize: 14, color: Colors.black87),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.black87,
+                            fontFamily: 'Poppins',
+                          ),
                         ),
                       ],
                     ),
@@ -296,6 +335,7 @@ class LoginScreenState extends State<LoginScreen> {
                           fontSize: 14,
                           color: Color(0xFF00A19C),
                           fontWeight: FontWeight.w600,
+                          fontFamily: 'Poppins',
                         ),
                       ),
                     ),
@@ -307,7 +347,7 @@ class LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00A19C),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -327,6 +367,7 @@ class LoginScreenState extends State<LoginScreen> {
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
+                                  fontFamily: 'Poppins',
                                 ),
                               ),
                               SizedBox(width: 8),
@@ -353,7 +394,11 @@ class LoginScreenState extends State<LoginScreen> {
                   children: [
                     const Text(
                       "Don't have an account? ",
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                        fontFamily: 'Poppins',
+                      ),
                     ),
                     GestureDetector(
                       onTap: navigateToSignUp,
@@ -363,6 +408,7 @@ class LoginScreenState extends State<LoginScreen> {
                           fontSize: 14,
                           color: Color(0xFF00A19C),
                           fontWeight: FontWeight.w600,
+                          fontFamily: 'Poppins',
                         ),
                       ),
                     ),

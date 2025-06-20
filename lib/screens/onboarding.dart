@@ -1,4 +1,5 @@
 import 'package:allergen/screens/homescreen.dart';
+import 'package:allergen/screens/profile_details.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -73,7 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _clearSearch() {
     searchController.clear();
-    // The _onSearchChanged will be triggered automatically by clearing the controller
+   
   }
 
   void _onSearchChanged() {
@@ -866,9 +867,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           }
 
                           await batch.commit();
-                          Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(builder: (_) => Homescreen()),
-                          );
+                         Navigator.of(context).pushReplacement(
+  MaterialPageRoute(builder: (_) => ProfileDetailsScreen()),
+);
+
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('Allergens saved successfully!'),
