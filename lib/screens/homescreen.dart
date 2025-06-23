@@ -1,10 +1,12 @@
 import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
-import 'package:allergen/screens/first_Aid_screens/emergencyScreen.dart';
+import 'package:allergen/screens/emergency/emergency_screen.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/screens/result_screen.dart'; // Add this import
+import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
+import 'package:allergen/widgets/emergency_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,12 +32,23 @@ class _HomescreenState extends State<Homescreen> {
   int _currentIndex = 0;
   bool _isDisposed = false;
 
+  //
+  late EmergencyService emergencyService;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_isDisposed) _safeInitialization();
     });
+
+    _initializeEmergencyService();
+  }
+
+  Future<void> _initializeEmergencyService() async {
+    emergencyService = EmergencyService();
+    await emergencyService.initialize();
+    setState(() => isLoading = false);
   }
 
   @override
@@ -460,11 +473,10 @@ class _HomescreenState extends State<Homescreen> {
 
   Widget _buildEmergencySection() {
     return GestureDetector(
-      onLongPress:
-          () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => EmergencyScreen()),
-          ),
+      onLongPress: () {
+        emergencyService.startEmergencyCallFromUI(context);
+      
+      },
       child: Container(
         padding: EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -697,7 +709,11 @@ class _HomescreenState extends State<Homescreen> {
             onPressed:
                 () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => UserProfile()),
+                  MaterialPageRoute(
+                    builder:
+                        (_) =>
+                            UserProfile(emergencyService: EmergencyService()),
+                  ),
                 ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -1058,7 +1074,11 @@ class _HomescreenState extends State<Homescreen> {
                 setState(() => _currentIndex = 2);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => UserProfile()),
+                  MaterialPageRoute(
+                    builder:
+                        (_) =>
+                            UserProfile(emergencyService: EmergencyService()),
+                  ),
                 );
               },
               child: Image.asset(

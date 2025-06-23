@@ -1,7 +1,8 @@
+import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 
-import '../emergencyScreen.dart';
+import '../../emergency/emergency_screen.dart';
 import 'severeDetailScreen.dart';
 
 class SevereEmergencyListScreen extends StatefulWidget {
@@ -64,17 +65,14 @@ class _SevereEmergencyListScreenState extends State<SevereEmergencyListScreen> {
     });
   }
 
-  void _onPanEnd(DragEndDetails details) {
+  void _onPanEnd(DragEndDetails details) async {
     setState(() {
       _isDragging = false;
     });
 
     if (_dragPosition >= _dragThreshold) {
       // Navigate to emergency screen
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => EmergencyScreen()),
-      );
+      await EmergencyService().startEmergencyCall();
     }
 
     // Reset position with animation

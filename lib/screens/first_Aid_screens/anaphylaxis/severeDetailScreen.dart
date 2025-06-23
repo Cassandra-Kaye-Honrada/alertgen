@@ -1,7 +1,8 @@
+import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 
-import '../emergencyScreen.dart';
+import '../../emergency/emergency_screen.dart';
 
 class SevereEmergencyPageViewScreen extends StatefulWidget {
   final int initialPage;
@@ -17,6 +18,14 @@ class _SevereEmergencyPageViewScreenState
     extends State<SevereEmergencyPageViewScreen> {
   late PageController _pageController;
   int _currentPage = 0;
+  late EmergencyService emergencyService;
+  bool _isLoading = true;
+
+  Future<void> _initializeEmergencyService() async {
+    emergencyService = EmergencyService();
+    await emergencyService.initialize();
+    setState(() => _isLoading = false);
+  }
 
   final List<EmergencyAction> emergencyActions = [
     EmergencyAction(1, "Symptoms"),
@@ -39,6 +48,7 @@ class _SevereEmergencyPageViewScreenState
     super.initState();
     _currentPage = widget.initialPage;
     _pageController = PageController(initialPage: widget.initialPage);
+    _initializeEmergencyService(); // Added this line
   }
 
   @override
@@ -74,17 +84,14 @@ class _SevereEmergencyPageViewScreenState
     });
   }
 
-  void _onPanEnd(DragEndDetails details) {
+  void _onPanEnd(DragEndDetails details) async {
     setState(() {
       _isDragging = false;
     });
 
     if (_dragPosition >= _dragThreshold) {
       // Navigate to emergency screen
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => EmergencyScreen()),
-      );
+      emergencyService.startEmergencyCallFromUI(context);
     }
 
     // Reset position with animation

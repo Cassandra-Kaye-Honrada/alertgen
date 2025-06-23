@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/homescreen.dart';
 import 'package:allergen/screens/result_screen.dart';
+import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -104,9 +105,10 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     if (_cameraController?.value.isInitialized != true) return;
 
     try {
-      _flashMode = _flashMode == FlashMode.auto
-          ? FlashMode.always
-          : _flashMode == FlashMode.always
+      _flashMode =
+          _flashMode == FlashMode.auto
+              ? FlashMode.always
+              : _flashMode == FlashMode.always
               ? FlashMode.off
               : FlashMode.auto;
 
@@ -134,7 +136,10 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
 
   Future<void> pickImage(ImageSource source) async {
     try {
-      final pickedFile = await picker.pickImage(source: source, imageQuality: 75);
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 75,
+      );
       if (pickedFile != null) {
         setState(() {
           _image = File(pickedFile.path);
@@ -149,9 +154,9 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -245,7 +250,10 @@ Your task is to ensure the output helps users easily understand potential allerg
 
       final imageBytes = await imageFile.readAsBytes();
       final response = await model.generateContent([
-        Content.multi([TextPart(_analysisPrompt), DataPart('image/jpeg', imageBytes)]),
+        Content.multi([
+          TextPart(_analysisPrompt),
+          DataPart('image/jpeg', imageBytes),
+        ]),
       ]);
 
       await parseGeminiResponse(response.text ?? '', imageFile);
@@ -269,9 +277,10 @@ Your task is to ensure the output helps users easily understand potential allerg
         dishName = jsonData['dishName'] ?? 'Unknown Dish';
         description = jsonData['description'] ?? 'No description available';
         ingredients = List<String>.from(jsonData['ingredients'] ?? []);
-        allergens = (jsonData['allergens'] as List? ?? [])
-            .map((a) => AllergenInfo.fromJson(a))
-            .toList();
+        allergens =
+            (jsonData['allergens'] as List? ?? [])
+                .map((a) => AllergenInfo.fromJson(a))
+                .toList();
         loading = false;
       });
 
@@ -293,14 +302,15 @@ Your task is to ensure the output helps users easily understand potential allerg
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ResultScreen(
-          image: _image!,
-          dishName: dishName,
-          description: description,
-          ingredients: ingredients,
-          allergens: allergens,
-          onIngredientsChanged: updateAllergens,
-        ),
+        builder:
+            (context) => ResultScreen(
+              image: _image!,
+              dishName: dishName,
+              description: description,
+              ingredients: ingredients,
+              allergens: allergens,
+              onIngredientsChanged: updateAllergens,
+            ),
       ),
     );
   }
@@ -328,15 +338,19 @@ Your task is to ensure the output helps users easily understand potential allerg
 
       final scanData = {
         'dishName': dishName.isNotEmpty ? dishName : 'Unknown Dish',
-        'description': description.isNotEmpty ? description : 'No description available',
+        'description':
+            description.isNotEmpty ? description : 'No description available',
         'ingredients': ingredients.isNotEmpty ? ingredients : [],
-        'allergens': allergens
-            .map((a) => {
-                  'name': a.name,
-                  'riskLevel': a.riskLevel,
-                  'symptoms': a.symptoms,
-                })
-            .toList(),
+        'allergens':
+            allergens
+                .map(
+                  (a) => {
+                    'name': a.name,
+                    'riskLevel': a.riskLevel,
+                    'symptoms': a.symptoms,
+                  },
+                )
+                .toList(),
         'imageUrl': imageUrl,
         'fileName': fileName,
         'timestamp': FieldValue.serverTimestamp(),
@@ -387,9 +401,10 @@ Risk levels: "severe", "moderate", "mild", or "safe"
       }
 
       final jsonData = json.decode(cleanResponse.trim());
-      final newAllergens = (jsonData['allergens'] as List? ?? [])
-          .map((a) => AllergenInfo.fromJson(a))
-          .toList();
+      final newAllergens =
+          (jsonData['allergens'] as List? ?? [])
+              .map((a) => AllergenInfo.fromJson(a))
+              .toList();
 
       setState(() {
         ingredients = newIngredients;
@@ -403,22 +418,23 @@ Risk levels: "severe", "moderate", "mild", or "safe"
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('How to Use'),
-        content: const Text(
-          '1. Point your camera at the food or select from gallery\n'
-          '2. Use the center button to capture and analyze the food\n'
-          '3. Use flash button to toggle flash modes\n'
-          '4. View results with allergen information\n'
-          '5. Check ingredients and risk levels',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Got it'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('How to Use'),
+            content: const Text(
+              '1. Point your camera at the food or select from gallery\n'
+              '2. Use the center button to capture and analyze the food\n'
+              '3. Use flash button to toggle flash modes\n'
+              '4. View results with allergen information\n'
+              '5. Check ingredients and risk levels',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -443,7 +459,10 @@ Risk levels: "severe", "moderate", "mild", or "safe"
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildControlButton(Icons.photo_library, () => pickImage(ImageSource.gallery)),
+          _buildControlButton(
+            Icons.photo_library,
+            () => pickImage(ImageSource.gallery),
+          ),
           _buildControlButton(_getFlashIcon(), _toggleFlash),
           if (_cameras != null && _cameras!.length > 1)
             _buildControlButton(Icons.flip_camera_ios, _switchCamera),
@@ -491,11 +510,25 @@ Risk levels: "severe", "moderate", "mild", or "safe"
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildNavButton('assets/navigation/menu_inactive.png', () =>
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => Homescreen()))),
+                _buildNavButton(
+                  'assets/navigation/menu_inactive.png',
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => Homescreen()),
+                  ),
+                ),
                 const SizedBox(width: 70),
-                _buildNavButton('assets/navigation/Profile_inactive.png', () =>
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => UserProfile()))),
+                _buildNavButton(
+                  'assets/navigation/Profile_inactive.png',
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (_) =>
+                              UserProfile(emergencyService: EmergencyService()),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -535,9 +568,17 @@ Risk levels: "severe", "moderate", "mild", or "safe"
           ),
           child: GestureDetector(
             onTap: loading ? null : _captureImage,
-            child: loading
-                ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                : Image.asset('assets/navigation/scan_active.png', width: 24, height: 24),
+            child:
+                loading
+                    ? const CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    )
+                    : Image.asset(
+                      'assets/navigation/scan_active.png',
+                      width: 24,
+                      height: 24,
+                    ),
           ),
         ),
       ),
@@ -551,7 +592,14 @@ Risk levels: "severe", "moderate", "mild", or "safe"
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Food Scanner', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500)),
+        title: const Text(
+          'Food Scanner',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -564,16 +612,19 @@ Risk levels: "severe", "moderate", "mild", or "safe"
         children: [
           // Camera preview or captured image
           Positioned.fill(
-            child: _image != null
-                ? Image.file(_image!, fit: BoxFit.cover)
-                : _isCameraInitialized
+            child:
+                _image != null
+                    ? Image.file(_image!, fit: BoxFit.cover)
+                    : _isCameraInitialized
                     ? CameraPreview(_cameraController!)
                     : Container(
-                        color: Colors.black,
-                        child: const Center(
-                          child: CircularProgressIndicator(color: Color(0xFF00BCD4)),
+                      color: Colors.black,
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF00BCD4),
                         ),
                       ),
+                    ),
           ),
 
           // Scanner overlay
@@ -590,7 +641,10 @@ Risk levels: "severe", "moderate", "mild", or "safe"
                   children: [
                     CircularProgressIndicator(color: Color(0xFF00BCD4)),
                     SizedBox(height: 16),
-                    Text('Analyzing food...', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    Text(
+                      'Analyzing food...',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
                   ],
                 ),
               ),
@@ -647,14 +701,21 @@ class ScannerOverlay extends StatelessWidget {
             Positioned(
               bottom: -80,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.7),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
                   'Position your food within the frame and tap to capture',
-                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w400),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -667,10 +728,26 @@ class ScannerOverlay extends StatelessWidget {
 
   Widget _buildCornerBracket(int index) {
     final positions = [
-      {'top': 0.0, 'left': 0.0, 'borders': ['top', 'left']},
-      {'top': 0.0, 'right': 0.0, 'borders': ['top', 'right']},
-      {'bottom': 0.0, 'left': 0.0, 'borders': ['bottom', 'left']},
-      {'bottom': 0.0, 'right': 0.0, 'borders': ['bottom', 'right']},
+      {
+        'top': 0.0,
+        'left': 0.0,
+        'borders': ['top', 'left'],
+      },
+      {
+        'top': 0.0,
+        'right': 0.0,
+        'borders': ['top', 'right'],
+      },
+      {
+        'bottom': 0.0,
+        'left': 0.0,
+        'borders': ['bottom', 'left'],
+      },
+      {
+        'bottom': 0.0,
+        'right': 0.0,
+        'borders': ['bottom', 'right'],
+      },
     ];
 
     final pos = positions[index];
@@ -684,18 +761,22 @@ class ScannerOverlay extends StatelessWidget {
         height: 30,
         decoration: BoxDecoration(
           border: Border(
-            top: (pos['borders'] as List).contains('top')
-                ? const BorderSide(color: Colors.white, width: 3)
-                : BorderSide.none,
-            left: (pos['borders'] as List).contains('left')
-                ? const BorderSide(color: Colors.white, width: 3)
-                : BorderSide.none,
-            right: (pos['borders'] as List).contains('right')
-                ? const BorderSide(color: Colors.white, width: 3)
-                : BorderSide.none,
-            bottom: (pos['borders'] as List).contains('bottom')
-                ? const BorderSide(color: Colors.white, width: 3)
-                : BorderSide.none,
+            top:
+                (pos['borders'] as List).contains('top')
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+            left:
+                (pos['borders'] as List).contains('left')
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+            right:
+                (pos['borders'] as List).contains('right')
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+            bottom:
+                (pos['borders'] as List).contains('bottom')
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
           ),
         ),
       ),

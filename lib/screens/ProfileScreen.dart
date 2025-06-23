@@ -1,8 +1,10 @@
+import 'package:allergen/screens/emergency/emergency_settings_screen.dart';
 import 'package:allergen/screens/profile_screen_items/edit_profile.dart';
 import 'package:allergen/screens/login.dart';
 import 'package:allergen/screens/profile_screen_items/about_screen.dart';
 import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/scan_screen.dart';
+import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,7 +16,9 @@ import 'profile_screen_items/privacy_policy_screen.dart';
 import 'profile_screen_items/terms_and_condition';
 
 class UserProfile extends StatefulWidget {
-  const UserProfile({Key? key}) : super(key: key);
+  final EmergencyService emergencyService;
+  const UserProfile({Key? key, required this.emergencyService})
+    : super(key: key);
 
   @override
   State<UserProfile> createState() => _UserProfileState();
@@ -522,10 +526,67 @@ class _UserProfileState extends State<UserProfile> {
                                                   context,
                                                   MaterialPageRoute(
                                                     builder:
-                                                        (_) =>
-                                                            EmergencyContactScreen(),
+                                                        (
+                                                          context,
+                                                        ) => EmergencySettingsScreen(
+                                                          emergencyContacts:
+                                                              widget
+                                                                  .emergencyService
+                                                                  .emergencyContacts,
+                                                          emergencySettings:
+                                                              widget
+                                                                  .emergencyService
+                                                                  .emergencySettings,
+                                                          emergencyService:
+                                                              widget
+                                                                  .emergencyService, // Add this line
+                                                          onSave: (
+                                                            contacts,
+                                                            settings,
+                                                          ) async {
+                                                            // Try one of these approaches based on your EmergencyService methods:
+
+                                                            // Option 1: If you have saveContacts/saveSettings methods
+                                                            // await widget.emergencyService.saveContacts(contacts);
+                                                            // await widget.emergencyService.saveSettings(settings);
+
+                                                            // Option 2: If you have a single save method
+                                                            // await widget.emergencyService.save(contacts, settings);
+
+                                                            // Option 3: If you have setters
+                                                            // widget.emergencyService.emergencyContacts = contacts;
+                                                            // widget.emergencyService.emergencySettings = settings;
+                                                            // await widget.emergencyService.saveToStorage();
+
+                                                            // Option 4: If you have individual setters
+                                                            // await widget.emergencyService.setEmergencyContacts(contacts);
+                                                            // await widget.emergencyService.setEmergencySettings(settings);
+
+                                                            // Refresh the service data and UI
+                                                            await widget
+                                                                .emergencyService
+                                                                .forceReload();
+                                                            if (mounted) {
+                                                              setState(() {});
+                                                            }
+                                                          },
+                                                        ),
                                                   ),
                                                 );
+
+                                                //                                                 Navigator.push(
+                                                //   context,
+                                                //   MaterialPageRoute(
+                                                //     builder: (context) => EmergencySettingsScreen(
+                                                //       emergencyContacts: contacts,
+                                                //       emergencySettings: settings,
+                                                //       emergencyService: emergencyService, // Add this line
+                                                //       onSave: (contacts, settings) {
+                                                //         // Handle save
+                                                //       },
+                                                //     ),
+                                                //   ),
+                                                // );
                                               },
                                             ),
                                           ],
