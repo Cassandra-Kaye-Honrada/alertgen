@@ -490,6 +490,8 @@ Only return the JSON object, no additional text.
                 AllergenTab(
                   currentAllergens: currentAllergens,
                   isUpdatingAllergens: isUpdatingAllergens,
+                  productName:
+                      widget.dishName,
                 ),
                 DescriptionTab(
                   description: widget.description,
