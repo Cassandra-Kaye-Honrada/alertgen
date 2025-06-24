@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'dart:io';
 
@@ -214,7 +213,7 @@ DINENGDENG:
 - NOT Pesang Isda (which is primarily fish in clear broth)
 - NOT Ginisang Isda (which is sautéed fish with vegetables, no broth)
 
-PESANG ISDA:
+SINIGANG NA ISDA:
 - Clear fish soup/broth
 - Whole fish pieces or fish fillets clearly visible
 - Usually has ginger, onions, some vegetables
@@ -234,7 +233,7 @@ PICADILLO:
 
 OTHER KEY DISHES:
 - ADOBO: Dark, soy sauce-colored meat (pork/chicken), glossy appearance
-- SINIGANG: Sour soup, clear/light broth, vegetables, meat/seafood
+- SINIGANG: Sour soup, clear/light broth, vegetables, meat/seafood,
 - KARE-KARE: Thick, orange/brown peanut sauce, oxtail/beef, vegetables
 - PINAKBET: Mixed vegetables with bagoong, minimal liquid
 
@@ -647,9 +646,7 @@ If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "c
                     MaterialPageRoute(
                       builder:
                           (_) =>
-                              UserProfile(emergencyService: EmergencyService(
-                                
-                              )),
+                              UserProfile(emergencyService: EmergencyService()),
                     ),
                   ),
                 ),
@@ -907,7 +904,6 @@ class ScannerOverlay extends StatelessWidget {
     );
   }
 }
-
 
 class AllergenInfo {
   final String name;
