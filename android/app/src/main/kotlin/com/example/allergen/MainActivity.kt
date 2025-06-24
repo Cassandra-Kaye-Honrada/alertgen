@@ -39,24 +39,25 @@ class MainActivity: FlutterActivity() {
         Log.d(TAG, "🔧 Configuring Flutter engine...")
         
         // SMS Channel
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_CHANNEL).setMethodCallHandler { call, result ->
-            Log.d(TAG, "📱 SMS Channel - Method: ${call.method}")
-            when (call.method) {
-                "sendSMS" -> {
-                    val phoneNumber = call.argument<String>("phoneNumber")
-                    val message = call.argument<String>("message")
-                    
-                    if (phoneNumber != null && message != null) {
-                        sendSMS(phoneNumber, message, result)
-                    } else {
-                        result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
-                    }
-                }
-                else -> {
-                    result.notImplemented()
-                }
+     MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_CHANNEL).setMethodCallHandler { call, result ->
+    Log.d(TAG, "📱 SMS Channel - Method: ${call.method}")
+    when (call.method) {
+        "sendSMS", "sendDirectSMS" -> {
+            val phoneNumber = call.argument<String>("phoneNumber")
+            val message = call.argument<String>("message")
+
+            if (phoneNumber != null && message != null) {
+                sendSMS(phoneNumber, message, result)
+            } else {
+                result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
             }
         }
+        else -> {
+            result.notImplemented()
+        }
+    }
+}
+
 
         // Call Management Channel
         callMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_CHANNEL)
