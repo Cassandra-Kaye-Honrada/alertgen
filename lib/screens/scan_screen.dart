@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -189,29 +190,98 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   }
 
   String get _analysisPrompt => '''
-Analyze this food image and return a JSON response with this exact structure:
+You are an expert Filipino food identification and allergen detection system. Your primary goal is ACCURATE DISH IDENTIFICATION based on visual characteristics.
 
-{
-  "dishName": "Name of the dish",
-  "description": "Detailed description of the dish",
-  "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
-  "allergens": [
-    {
-      "name": "Milk",
-      "riskLevel": "severe",
-      "symptoms": ["stomach pain", "bloating"]
-    }
-  ]
-}
+CRITICAL IDENTIFICATION RULES:
+1. Look carefully at the VISUAL CHARACTERISTICS of the dish
+2. Identify based on what you SEE, not assumptions
+3. Be SPECIFIC with Filipino dish names - avoid generic terms
 
-Risk levels should be: "severe", "moderate", "mild", or "safe"
+COMMON FILIPINO DISHES - VISUAL IDENTIFICATION GUIDE:
 
-Common allergens to check for: milk, eggs, fish, shellfish, tree nuts, peanuts, wheat, soy bean, sesame, mustard
+GINILING (Ground Pork/Beef):
+- Small, minced/ground meat pieces
+- Usually brown/dark colored from cooking
+- May have diced vegetables (carrots, potatoes, onions)
+- Sauce-based, often tomato-based
+- NOT the same as Picadillo (which has specific Spanish influences)
+
+DINENGDENG:
+- Clear, light-colored broth/soup
+- Mixed vegetables clearly visible (squash, okra, string beans, etc.)
+- Often has bagoong (fermented fish paste) - grayish
+- Vegetables should look boiled/steamed in broth
+- NOT Pesang Isda (which is primarily fish in clear broth)
+- NOT Ginisang Isda (which is sautéed fish with vegetables, no broth)
+
+PESANG ISDA:
+- Clear fish soup/broth
+- Whole fish pieces or fish fillets clearly visible
+- Usually has ginger, onions, some vegetables
+- Broth-based with fish as primary protein
+
+GINISANG ISDA:
+- Sautéed/fried fish with vegetables
+- Fish pieces clearly visible, usually browned/fried
+- Vegetables mixed with fish, minimal liquid
+- More dry preparation than soup-like
+
+PICADILLO:
+- Ground meat with specific Spanish-style preparation
+- Often has raisins, hard-boiled eggs
+- Tomato-based sauce, sweeter flavor profile
+- Different from simple giniling
+
+OTHER KEY DISHES:
+- ADOBO: Dark, soy sauce-colored meat (pork/chicken), glossy appearance
+- SINIGANG: Sour soup, clear/light broth, vegetables, meat/seafood
+- KARE-KARE: Thick, orange/brown peanut sauce, oxtail/beef, vegetables
+- PINAKBET: Mixed vegetables with bagoong, minimal liquid
+
+THE 9 ALLERGENS TO DETECT:
+1. Milk (dairy, casein, whey, lactose)
+2. Eggs (albumin, lecithin, ovalbumin)
+3. Fish (anchovies, bagoong, fish sauce, dried fish)
+4. Shellfish (shrimp, crab, oyster sauce, alamang)
+5. Tree nuts (cashew, almonds, etc. - NOT peanuts)
+6. Peanuts (mani, peanut oil)
+7. Wheat (gluten, flour, bread crumbs)
+8. Soy (soy sauce, tofu, soybean oil)
+9. Sesame (sesame oil, tahini)
+
+ALLERGEN DETECTION RULES:
+- Base detection on VISIBLE ingredients and known dish composition
+- Traditional Adobo = SOY allergen (from soy sauce)
+- Dinengdeng = FISH allergen (from bagoong)
+- Dishes with visible fish/seafood = FISH/SHELLFISH allergens
+- Coconut milk/gata = SAFE (not tree nut)
+- Only detect allergens you can CONFIRM are present
 
 If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
 - Automatically map them to their corresponding common allergen (e.g., albumin → egg, casein → milk).
 - Use the common allergen name (not the technical term) in the "name" field of the allergens JSON.
 - Do this mapping even if the term is not in a predefined list.
+
+Return JSON with this exact structure:
+{
+  "dishName": "Exact Filipino dish name based on visual identification",
+  "description": "Brief description of the dish characteristics and preparation method",
+  "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
+  "allergens": [
+    {
+      "name": "One of the 9 allergens only",
+      "riskLevel": "severe|moderate|mild|safe",
+      "symptoms": ["specific symptom1", "specific symptom2"],
+      "source": "specific ingredient that contains this allergen"
+    }
+  ]
+}
+
+CRITICAL ACCURACY REQUIREMENTS:
+- If you see ground meat with vegetables in sauce = likely "Giniling", NOT "Picadillo"
+- If you see vegetables in clear broth with bagoong = "Dinengdeng", NOT "Pesang Isda" or "Ginisang Isda"
+- Look at preparation method: soup vs sautéed vs stewed
+- Be conservative: if unsure between similar dishes, choose the more common/traditional preparation
 
 Your task is to ensure the output helps users easily understand potential allergen risks, even if the ingredients are listed in scientific or technical terms.
 ''';
@@ -228,11 +298,24 @@ Your task is to ensure the output helps users easily understand potential allerg
         apiKey: apiKey,
       );
 
-      final prompt = '$_analysisPrompt\n\nOCR text: $ocrText';
+      final prompt = '''$_analysisPrompt
+
+OCR TEXT EXTRACTED: "$ocrText"
+
+IMPORTANT: Look at the IMAGE carefully for visual identification. The OCR text is supplementary information.
+
+Steps for analysis:
+1. FIRST: Identify the dish based on what you SEE in the image (preparation method, ingredients, appearance)
+2. SECOND: Use OCR text as supporting information if relevant
+3. THIRD: Determine allergens based on confirmed ingredients
+
+Focus on accurate visual identification of the Filipino dish. Do not rely solely on OCR text for dish identification.''';
+
       final response = await model.generateContent([Content.text(prompt)]);
       await parseGeminiResponse(response.text ?? '', imageFile);
     } catch (e) {
       setState(() => loading = false);
+      _showSnackBar('Error analyzing with text: $e', Colors.red);
     }
   }
 
@@ -249,16 +332,37 @@ Your task is to ensure the output helps users easily understand potential allerg
       );
 
       final imageBytes = await imageFile.readAsBytes();
+      final prompt = '''$_analysisPrompt
+
+VISUAL ANALYSIS INSTRUCTIONS:
+Carefully examine this Filipino food image. Follow these steps:
+
+1. VISUAL IDENTIFICATION (Most Important):
+   - What cooking method do you see? (soup/broth, sautéed, stewed, fried)
+   - What are the main ingredients visible?
+   - What is the color and consistency of the dish?
+   - Is there liquid/broth or is it more dry?
+
+2. SPECIFIC DISH CHARACTERISTICS:
+   - Ground meat in sauce = likely Giniling
+   - Vegetables in clear broth = likely Dinengdeng
+   - Fish in clear broth = likely Pesang Isda
+   - Sautéed fish with vegetables (no broth) = likely Ginisang Isda
+
+3. ALLERGEN DETECTION:
+   - Only detect allergens from ingredients you can visually confirm or know are traditional in the identified dish
+   - Be conservative and accurate
+
+Base your identification primarily on what you can SEE in the image. Be specific with Filipino dish names.''';
+
       final response = await model.generateContent([
-        Content.multi([
-          TextPart(_analysisPrompt),
-          DataPart('image/jpeg', imageBytes),
-        ]),
+        Content.multi([TextPart(prompt), DataPart('image/jpeg', imageBytes)]),
       ]);
 
       await parseGeminiResponse(response.text ?? '', imageFile);
     } catch (e) {
       setState(() => loading = false);
+      _showSnackBar('Error analyzing image: $e', Colors.red);
     }
   }
 
@@ -274,7 +378,7 @@ Your task is to ensure the output helps users easily understand potential allerg
       final jsonData = json.decode(cleanResponse.trim());
 
       setState(() {
-        dishName = jsonData['dishName'] ?? 'Unknown Dish';
+        dishName = jsonData['dishName'] ?? 'Unknown Filipino Dish';
         description = jsonData['description'] ?? 'No description available';
         ingredients = List<String>.from(jsonData['ingredients'] ?? []);
         allergens =
@@ -348,6 +452,7 @@ Your task is to ensure the output helps users easily understand potential allerg
                     'name': a.name,
                     'riskLevel': a.riskLevel,
                     'symptoms': a.symptoms,
+                    // 'source': a.source,
                   },
                 )
                 .toList(),
@@ -377,20 +482,36 @@ Your task is to ensure the output helps users easily understand potential allerg
     );
 
     final prompt = '''
-Based on these ingredients, identify potential allergens and return JSON:
+Based on these Filipino food ingredients, identify allergens from the 9 common allergens only:
+Milk, Eggs, Fish, Shellfish, Tree nuts, Peanuts, Wheat, Soy, Sesame
 
+IMPORTANT: Only detect allergens that are ACTUALLY present in the listed ingredients. Be conservative and accurate.
+TAKE NOTE: It is a filipino cuisines
+
+Return JSON:
 {
   "allergens": [
     {
-      "name": "Milk",
-      "riskLevel": "severe",
-      "symptoms": ["stomach pain", "bloating"]
+      "name": "One of the 9 allergens",
+      "riskLevel": "severe|moderate|mild|safe",
+      "symptoms": ["symptom1", "symptom2"],
+      "source": "specific ingredient causing allergen"
     }
   ]
 }
 
 Ingredients: ${newIngredients.join(', ')}
-Risk levels: "severe", "moderate", "mild", or "safe"
+
+Filipino-specific allergen sources (only if the ingredient is actually listed):
+- Bagoong/Fish sauce = Fish
+- Oyster sauce/Alamang = Shellfish  
+- Soy sauce/Toyo = Soy
+- Coconut milk/Gata = Safe (not tree nut)
+- Traditional Adobo = Usually only Soy (from soy sauce)
+
+If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
+- Automatically map them to their corresponding common allergen (e.g., albumin → egg, casein → milk).
+- Use the common allergen name (not the technical term) in the "name" field of the allergens JSON.
 ''';
 
     try {
@@ -420,13 +541,14 @@ Risk levels: "severe", "moderate", "mild", or "safe"
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('How to Use'),
+            title: const Text('Filipino Food Scanner'),
             content: const Text(
-              '1. Point your camera at the food or select from gallery\n'
-              '2. Use the center button to capture and analyze the food\n'
-              '3. Use flash button to toggle flash modes\n'
-              '4. View results with allergen information\n'
-              '5. Check ingredients and risk levels',
+              '• Point camera at Filipino dishes or food labels\n'
+              '• Accurately identifies specific Filipino dishes\n'
+              '• Detects 9 common allergens in Filipino cuisine\n'
+              '• Recognizes dishes like Giniling, Dinengdeng, Adobo\n'
+              '• Tap center button to capture and analyze\n'
+              '• View detailed allergen risk levels',
             ),
             actions: [
               TextButton(
@@ -595,7 +717,7 @@ Risk levels: "severe", "moderate", "mild", or "safe"
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
-          'Food Scanner',
+          'Filipino Food Scanner',
           style: TextStyle(
             color: Colors.white,
             fontSize: 18,
@@ -644,7 +766,7 @@ Risk levels: "severe", "moderate", "mild", or "safe"
                     CircularProgressIndicator(color: Color(0xFF00BCD4)),
                     SizedBox(height: 16),
                     Text(
-                      'Analyzing food...',
+                      'Analyzing Filipino food...',
                       style: TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ],
@@ -712,7 +834,7 @@ class ScannerOverlay extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
-                  'Position your food within the frame and tap to capture',
+                  'Position Filipino dish within frame and tap to scan for accurate identification',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -785,6 +907,7 @@ class ScannerOverlay extends StatelessWidget {
     );
   }
 }
+
 
 class AllergenInfo {
   final String name;

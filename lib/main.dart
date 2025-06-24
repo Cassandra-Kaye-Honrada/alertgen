@@ -21,7 +21,7 @@ class AlertGen extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey, // Use the global navigator key
+      navigatorKey: navigatorKey, 
       home: SplashScreen(),
     );
   }
