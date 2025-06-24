@@ -7,9 +7,9 @@ import 'package:allergen/screens/result_screen.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -178,17 +178,211 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
       final recognizedText = await textRecognizer!.processImage(inputImage);
       final ocrText = recognizedText.text.trim();
 
-      if (ocrText.isNotEmpty) {
-        await analyzeWithText(ocrText, imageFile);
+      print('OCR Text extracted: $ocrText'); // Debug log
+
+      if (ocrText.isNotEmpty && _isLabeledProduct(ocrText)) {
+        // If it's a labeled product, analyze the OCR text for ingredients
+        await analyzeOCRText(ocrText, imageFile);
       } else {
+        // If it's a prepared dish, analyze the image visually
         await analyzeWithImage(imageFile);
       }
     } catch (e) {
+      print('Error during OCR: $e');
       await analyzeWithImage(imageFile);
     }
   }
 
-  String get _analysisPrompt => '''
+  // Function to determine if the OCR text indicates a labeled product
+  bool _isLabeledProduct(String ocrText) {
+    final lowerText = ocrText.toLowerCase();
+
+    // Keywords that indicate a food label/packaged product
+    final labelKeywords = [
+      'ingredients:',
+      'ingredients',
+      'contains:',
+      'allergens:',
+      'nutrition facts',
+      'nutritional information',
+      'manufactured by',
+      'produced by',
+      'best before',
+      'expiry date',
+      'exp date',
+      'use by',
+      'serving size',
+      'calories',
+      'total fat',
+      'may contain',
+      'allergen information',
+      'mg',
+      'g ',
+      ' g',
+      'ml',
+      ' ml',
+      'kcal',
+      'kj',
+      'sodium',
+      'protein',
+      'carbohydrate',
+      'sugar',
+      'barcode',
+      'upc',
+      'sku',
+    ];
+
+    // Check if any label keywords are present
+    bool hasLabelKeywords = labelKeywords.any(
+      (keyword) => lowerText.contains(keyword),
+    );
+
+    // Check for ingredient list patterns (comma-separated items)
+    bool hasIngredientPattern =
+        lowerText.contains(',') &&
+        (lowerText.split(',').length >= 3); // At least 3 comma-separated items
+
+    // Check for percentage patterns common in ingredient lists
+    bool hasPercentages = RegExp(r'\d+%').hasMatch(lowerText);
+
+    return hasLabelKeywords || hasIngredientPattern || hasPercentages;
+  }
+
+  // Separate prompt for OCR text analysis (for labeled products)
+
+  String get _ocrAnalysisPrompt => '''
+You are an expert food product analyzer with access to comprehensive knowledge of Filipino and international packaged food products. Your goal is to accurately identify products and extract ingredients from food labels using OCR text.
+
+PRODUCT IDENTIFICATION STRATEGY:
+1. Look for BRAND NAMES and PRODUCT NAMES in the OCR text
+2. Use your knowledge of popular Filipino food brands and products
+3. Cross-reference with known product lines from major manufacturers
+4. Consider product categories (snacks, instant noodles, canned goods, etc.)
+5. If unsure, provide the most likely product name based on visible text patterns
+
+COMMON FILIPINO FOOD BRANDS TO RECOGNIZE:
+- Lucky Me! (instant noodles)
+- Nissin (Cup Noodles, instant noodles)
+- Payless (crackers, biscuits)
+- Ricoa (chocolates, candies)
+- Argentina (corned beef, canned meat)
+- CDO (processed meats, canned goods)
+- Spam (canned meat)
+- Monde Nissin (SkyFlakes, Fita, biscuits)
+- Universal Robina Corporation products (Jack 'n Jill, etc.)
+- San Miguel (various food products)
+- Del Monte (canned fruits, sauces)
+- Hunt's (tomato sauce, pasta sauce)
+- Maggi (seasonings, instant noodles)
+- Knorr (seasonings, soup mixes)
+- Nestlé products
+- Unilever products
+
+OCR TEXT IMPROVEMENT TECHNIQUES:
+1. Handle common OCR errors and misreadings
+2. Recognize partial or fragmented text
+3. Use context clues to reconstruct complete words
+4. Account for different fonts, orientations, and text quality
+5. Cross-reference ingredient patterns with known product types
+
+INGREDIENT EXTRACTION RULES:
+1. Look for "INGREDIENTS:" or similar sections in the text
+2. Parse comma-separated ingredient lists carefully
+3. Handle ingredients with parenthetical information (e.g., "wheat flour (enriched)")
+4. Recognize technical/scientific ingredient names
+5. Account for percentage indicators (e.g., "sugar 15%")
+6. Process multi-line ingredient lists
+7. Handle both English and Filipino ingredient names
+
+COMMON FILIPINO INGREDIENT TRANSLATIONS:
+- Asukal = Sugar
+- Asin = Salt  
+- Mantika = Oil
+- Gatas = Milk
+- Itlog = Egg
+- Bagoong = Fermented fish paste
+- Toyo = Soy sauce
+- Suka = Vinegar
+- Paminta = Black pepper
+- Bawang = Garlic
+- Sibuyas = Onion
+- Harina = Flour
+- Niyog/Gata = Coconut
+- Mani = Peanut
+
+TECHNICAL INGREDIENT MAPPING:
+- Monosodium glutamate (MSG) = Flavor enhancer (generally safe)
+- Sodium benzoate = Preservative
+- Potassium sorbate = Preservative
+- Ascorbic acid = Vitamin C
+- Tocopherols = Vitamin E
+- BHT/BHA = Antioxidants
+- Carrageenan = Thickener
+- Lecithin = Emulsifier
+- Albumin, Ovalbumin → Eggs
+- Casein, Whey, Lactose → Milk
+- Natural/Artificial flavoring → Check source if specified
+
+THE 9 ALLERGENS TO DETECT:
+1. Milk (dairy, casein, whey, lactose, gatas)
+2. Eggs (albumin, lecithin, ovalbumin, itlog)
+3. Fish (anchovies, bagoong, fish sauce, dried fish, isda)
+4. Shellfish (shrimp, crab, oyster sauce, alamang, hipon)
+5. Tree nuts (cashew, almonds, etc. - NOT peanuts, NOT coconut)
+6. Peanuts (mani, peanut oil, groundnuts)
+7. Wheat (gluten, flour, bread crumbs, harina)
+8. Soy (soy sauce, tofu, soybean oil, toyo)
+9. Sesame (sesame oil, tahini, linga)
+
+ALLERGEN DETECTION RULES:
+- Only detect allergens explicitly present in ingredient text
+- Map technical/scientific names to common allergens
+- Consider cross-contamination warnings ("may contain", "processed in facility")
+- Filipino coconut products (gata, niyog) = SAFE (not tree nuts)
+- Be conservative - only flag confirmed allergens
+- Check for hidden sources (e.g., lecithin often from soy)
+
+PRODUCT NAME DETERMINATION LOGIC:
+1. Extract brand name from OCR text (usually prominently displayed)
+2. Extract product variant/flavor (e.g., "Chicken Flavor", "Original")
+3. Combine into full product name format: "Brand Product Variant"
+4. If brand unclear, use product category + key descriptors
+5. Cross-reference with known product databases and popular items
+6. Prioritize accuracy - use "Unidentified [Category] Product" if uncertain
+
+OCR ERROR CORRECTION PATTERNS:
+- "0" often misread as "O" or "D"
+- "1" often misread as "I" or "l"
+- "5" often misread as "S"
+- "8" often misread as "B"
+- Fragmented words should be reconstructed using context
+- Handle rotated or distorted text interpretations
+
+Return JSON with this exact structure:
+{
+  "dishName": "Specific product brand and name (e.g., 'Lucky Me! Pancit Canton Sweet Style', 'Nissin Cup Noodles Beef Flavor')",
+  "description": "Brief description including product category, key features, and brand information",
+  "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
+  "allergens": [
+    {
+      "name": "One of the 9 allergens only",
+      "riskLevel": "severe|moderate|mild|safe",
+      "symptoms": ["specific symptom1", "specific symptom2"],
+      "source": "specific ingredient that contains this allergen"
+    }
+  ]
+}
+
+CRITICAL REQUIREMENTS:
+1. Use your knowledge of popular food products to make accurate product identifications
+2. Cross-reference OCR text patterns with known brand and product names
+3. Handle OCR errors intelligently using context and product knowledge
+4. Extract ingredients thoroughly, including additives and preservatives
+5. Only detect allergens that are actually present in the ingredient list
+6. Provide specific, recognizable product names when possible
+''';
+
+  String get _imageAnalysisPrompt => '''
 You are an expert Filipino food identification and allergen detection system. Your primary goal is ACCURATE DISH IDENTIFICATION based on visual characteristics.
 
 CRITICAL IDENTIFICATION RULES:
@@ -256,11 +450,6 @@ ALLERGEN DETECTION RULES:
 - Coconut milk/gata = SAFE (not tree nut)
 - Only detect allergens you can CONFIRM are present
 
-If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
-- Automatically map them to their corresponding common allergen (e.g., albumin → egg, casein → milk).
-- Use the common allergen name (not the technical term) in the "name" field of the allergens JSON.
-- Do this mapping even if the term is not in a predefined list.
-
 Return JSON with this exact structure:
 {
   "dishName": "Exact Filipino dish name based on visual identification",
@@ -281,11 +470,9 @@ CRITICAL ACCURACY REQUIREMENTS:
 - If you see vegetables in clear broth with bagoong = "Dinengdeng", NOT "Pesang Isda" or "Ginisang Isda"
 - Look at preparation method: soup vs sautéed vs stewed
 - Be conservative: if unsure between similar dishes, choose the more common/traditional preparation
-
-Your task is to ensure the output helps users easily understand potential allergen risks, even if the ingredients are listed in scientific or technical terms.
 ''';
 
-  Future<void> analyzeWithText(String ocrText, File imageFile) async {
+  Future<void> analyzeOCRText(String ocrText, File imageFile) async {
     if (apiKey == 'YOUR_API_KEY_HERE') {
       setState(() => loading = false);
       return;
@@ -297,25 +484,73 @@ Your task is to ensure the output helps users easily understand potential allerg
         apiKey: apiKey,
       );
 
-      final prompt = '''$_analysisPrompt
+      // Enhanced prompt with better OCR processing instructions
+      final prompt = '''$_ocrAnalysisPrompt
 
-OCR TEXT EXTRACTED: "$ocrText"
+EXTRACTED TEXT FROM FOOD LABEL:
+"$ocrText"
 
-IMPORTANT: Look at the IMAGE carefully for visual identification. The OCR text is supplementary information.
+DETAILED ANALYSIS INSTRUCTIONS:
 
-Steps for analysis:
-1. FIRST: Identify the dish based on what you SEE in the image (preparation method, ingredients, appearance)
-2. SECOND: Use OCR text as supporting information if relevant
-3. THIRD: Determine allergens based on confirmed ingredients
+1. PRODUCT IDENTIFICATION:
+   - Scan the OCR text for brand names (usually in larger text/prominent position)
+   - Look for product line names (e.g., "Cup Noodles", "Pancit Canton")
+   - Identify flavor variants (e.g., "Beef", "Chicken", "Sweet Style")
+   - Use your knowledge of Filipino food brands to make accurate identifications
+   - If text is fragmented, use context clues to reconstruct the full product name
 
-Focus on accurate visual identification of the Filipino dish. Do not rely solely on OCR text for dish identification.''';
+2. OCR ERROR CORRECTION:
+   - Apply common OCR error patterns to improve text interpretation
+   - Use product knowledge to correct misread characters
+   - Reconstruct fragmented words using context
+   - Handle multiple text orientations and font variations
+
+3. INGREDIENT EXTRACTION:
+   - Look for ingredient list sections (may be preceded by "INGREDIENTS:", "CONTAINS:", etc.)
+   - Parse comma-separated lists carefully
+   - Handle multi-line ingredient lists
+   - Include additives, preservatives, and technical ingredients
+   - Map Filipino ingredient names to English equivalents
+
+4. ALLERGEN DETECTION:
+   - Only flag allergens that are explicitly present in the ingredient list
+   - Use technical ingredient mapping (e.g., lecithin → soy, casein → milk)
+   - Consider cross-contamination warnings if present
+   - Be conservative and accurate in allergen identification
+
+5. CONTEXT-BASED VALIDATION:
+   - Cross-reference identified product with typical ingredients for that product type
+   - Validate ingredient list against known formulations for similar products
+   - Ensure consistency between product name and ingredient profile
+
+Focus on providing the most accurate product identification possible using your knowledge of food products and brands, while maintaining precision in ingredient extraction and allergen detection.''';
 
       final response = await model.generateContent([Content.text(prompt)]);
       await parseGeminiResponse(response.text ?? '', imageFile);
     } catch (e) {
       setState(() => loading = false);
-      _showSnackBar('Error analyzing with text: $e', Colors.red);
+      _showSnackBar('Error analyzing product label: $e', Colors.red);
     }
+  }
+
+  String _preprocessOCRText(String rawText) {
+    String cleaned =
+        rawText
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .replaceAll(RegExp(r'[^\w\s\.\,\:\;\%\-\(\)]'), '')
+            .trim();
+
+    // Common OCR error corrections
+    cleaned = cleaned
+        .replaceAll(
+          RegExp(r'\b0(?=[a-zA-Z])'),
+          'O',
+        ) // 0 before letters likely O
+        .replaceAll(RegExp(r'\bl(?=[0-9])'), '1') // l before numbers likely 1
+        .replaceAll(RegExp(r'\bS(?=[0-9])'), '5') // S before numbers likely 5
+        .replaceAll(RegExp(r'\bB(?=[0-9])'), '8'); // B before numbers likely 8
+
+    return cleaned;
   }
 
   Future<void> analyzeWithImage(File imageFile) async {
@@ -331,7 +566,7 @@ Focus on accurate visual identification of the Filipino dish. Do not rely solely
       );
 
       final imageBytes = await imageFile.readAsBytes();
-      final prompt = '''$_analysisPrompt
+      final prompt = '''$_imageAnalysisPrompt
 
 VISUAL ANALYSIS INSTRUCTIONS:
 Carefully examine this Filipino food image. Follow these steps:
@@ -377,7 +612,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
       final jsonData = json.decode(cleanResponse.trim());
 
       setState(() {
-        dishName = jsonData['dishName'] ?? 'Unknown Filipino Dish';
+        dishName = jsonData['dishName'] ?? 'Unknown Food Product';
         description = jsonData['description'] ?? 'No description available';
         ingredients = List<String>.from(jsonData['ingredients'] ?? []);
         allergens =
@@ -440,7 +675,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
       final imageUrl = await uploadResult.ref.getDownloadURL();
 
       final scanData = {
-        'dishName': dishName.isNotEmpty ? dishName : 'Unknown Dish',
+        'dishName': dishName.isNotEmpty ? dishName : 'Unknown Product',
         'description':
             description.isNotEmpty ? description : 'No description available',
         'ingredients': ingredients.isNotEmpty ? ingredients : [],
@@ -451,7 +686,6 @@ Base your identification primarily on what you can SEE in the image. Be specific
                     'name': a.name,
                     'riskLevel': a.riskLevel,
                     'symptoms': a.symptoms,
-                    // 'source': a.source,
                   },
                 )
                 .toList(),
@@ -481,11 +715,10 @@ Base your identification primarily on what you can SEE in the image. Be specific
     );
 
     final prompt = '''
-Based on these Filipino food ingredients, identify allergens from the 9 common allergens only:
+Based on these ingredients, identify allergens from the 9 common allergens only:
 Milk, Eggs, Fish, Shellfish, Tree nuts, Peanuts, Wheat, Soy, Sesame
 
 IMPORTANT: Only detect allergens that are ACTUALLY present in the listed ingredients. Be conservative and accurate.
-TAKE NOTE: It is a filipino cuisines
 
 Return JSON:
 {
@@ -501,16 +734,14 @@ Return JSON:
 
 Ingredients: ${newIngredients.join(', ')}
 
-Filipino-specific allergen sources (only if the ingredient is actually listed):
+Allergen sources (only if the ingredient is actually listed):
 - Bagoong/Fish sauce = Fish
 - Oyster sauce/Alamang = Shellfish  
 - Soy sauce/Toyo = Soy
 - Coconut milk/Gata = Safe (not tree nut)
-- Traditional Adobo = Usually only Soy (from soy sauce)
+- Technical terms: albumin/ovalbumin → eggs, casein/whey/lactose → milk, lecithin → usually soy
 
-If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "casein", "lecithin", etc.), you must:
-- Automatically map them to their corresponding common allergen (e.g., albumin → egg, casein → milk).
-- Use the common allergen name (not the technical term) in the "name" field of the allergens JSON.
+If any technical ingredient terms are detected, map them to their corresponding common allergen and use the common allergen name in the response.
 ''';
 
     try {
@@ -540,12 +771,13 @@ If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "c
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Filipino Food Scanner'),
+            title: const Text('Food Scanner'),
             content: const Text(
-              '• Point camera at Filipino dishes or food labels\n'
-              '• Accurately identifies specific Filipino dishes\n'
-              '• Detects 9 common allergens in Filipino cuisine\n'
-              '• Recognizes dishes like Giniling, Dinengdeng, Adobo\n'
+              '• Point camera at Filipino dishes or food product labels\n'
+              '• For prepared dishes: Identifies specific Filipino dishes visually\n'
+              '• For packaged products: Extracts ingredients from labels using OCR\n'
+              '• Detects 9 common allergens in both cases\n'
+              '• Automatically determines if scanning a dish or product label\n'
               '• Tap center button to capture and analyze\n'
               '• View detailed allergen risk levels',
             ),
@@ -714,7 +946,7 @@ If any technical or ambiguous ingredient terms are detected (e.g., "albumin", "c
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
-          'Filipino Food Scanner',
+          'Food Scanner',
           style: TextStyle(
             color: Colors.white,
             fontSize: 18,
