@@ -1,22 +1,26 @@
 import 'package:allergen/screens/emergency/emergency_settings_screen.dart';
+import 'package:allergen/screens/models/emergency_settings.dart';
+import 'package:allergen/screens/models/emergency_contact.dart'; // ✅ Use the models version
 import 'package:allergen/screens/profile_screen_items/edit_profile.dart';
 import 'package:allergen/screens/login.dart';
 import 'package:allergen/screens/profile_screen_items/about_screen.dart';
 import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
+import 'package:allergen/screens/profile_screen_items/terms_and_condition';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
+import 'package:allergen/services/emergency/emergency_storage_service.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'profile_screen_items/EmergencyContactScreen.dart';
+import 'profile_screen_items/EmergencyContactScreen.dart' hide EmergencyContact;
 import 'profile_screen_items/AllergenProfileScreen.dart';
 import 'profile_screen_items/privacy_policy_screen.dart';
-import 'profile_screen_items/terms_and_condition';
 
 class UserProfile extends StatefulWidget {
   final EmergencyService emergencyService;
+
   const UserProfile({Key? key, required this.emergencyService})
     : super(key: key);
 
@@ -27,17 +31,93 @@ class UserProfile extends StatefulWidget {
 class _UserProfileState extends State<UserProfile> {
   int _currentIndex = 2; // Profile is active
   String username = 'Loading...';
+  String firstName = '';
+  String lastName = '';
+  String? profileImageUrl;
   int allergenCount = 0;
-  int scanHistoryCount = 0; // Added scan history count
+  int scanHistoryCount = 0;
   bool isLoading = true;
+
+  List<EmergencyContact> _emergencyContacts = [];
+  EmergencySettings _emergencySettings = EmergencySettings();
+  final EmergencyStorageService _storageService = EmergencyStorageService();
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadSettings();
   }
 
-  // Add this method to refresh data when returning from other screens
+  @override
+  void dispose() {
+    _storageService.dispose();
+    super.dispose();
+  }
+
+  // Load emergency settings
+  void _loadSettings() async {
+    try {
+      final data = await _storageService.loadSettings();
+      setState(() {
+        _emergencyContacts = data['contacts'] ?? [];
+        _emergencySettings = data['settings'] ?? EmergencySettings();
+      });
+    } catch (e) {
+      print('Error loading settings: $e');
+    }
+  }
+
+  // Navigate to emergency settings
+  void _navigateToEmergencySettings() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => EmergencySettingsScreen(
+              emergencyContacts: _emergencyContacts,
+              emergencySettings: _emergencySettings,
+              emergencyService: widget.emergencyService,
+              onSave: _handleSettingsSave,
+            ),
+      ),
+    );
+
+    // Reload settings when returning from settings screen
+    _loadSettings();
+  }
+
+  // Handle settings save - ✅ Fixed return type
+  void _handleSettingsSave(
+    List<EmergencyContact> contacts,
+    EmergencySettings settings,
+  ) async {
+    try {
+      // Save to storage service
+      await _storageService.saveSettings(contacts, settings);
+
+      // Update local state immediately
+      setState(() {
+        _emergencyContacts = List.from(contacts);
+        _emergencySettings = settings.copyWith();
+      });
+
+      print('Settings saved and local state updated');
+    } catch (e) {
+      print('Error in _handleSettingsSave: $e');
+      // You might want to show an error to the user here
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving settings: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Refresh user data when returning from other screens
   void _refreshUserData() {
     setState(() {
       isLoading = true;
@@ -45,21 +125,21 @@ class _UserProfileState extends State<UserProfile> {
     _loadUserData();
   }
 
+  // Load all user data
   Future<void> _loadUserData() async {
     await Future.wait([
       fetchUserProfile(),
       loadAllergenCount(),
-      loadScanHistoryCount(), // Added scan history count loading
+      loadScanHistoryCount(),
     ]);
-    setState(() {
-      isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
-  String firstName = '';
-  String lastName = '';
-  String? profileImageUrl;
-
+  // Fetch user profile from Firebase
   Future<void> fetchUserProfile() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
@@ -70,23 +150,27 @@ class _UserProfileState extends State<UserProfile> {
                 .doc(user.uid)
                 .get();
 
-        if (userDoc.exists) {
+        if (userDoc.exists && mounted) {
           setState(() {
             firstName = userDoc['firstName'] ?? '';
             lastName = userDoc['lastName'] ?? '';
-            username = "$firstName $lastName";
+            username = "$firstName $lastName".trim();
+            if (username.isEmpty) username = 'User';
             profileImageUrl = userDoc['imageUrl'];
           });
         }
       }
     } catch (e) {
       print('Error fetching user profile: $e');
-      setState(() {
-        username = 'User';
-      });
+      if (mounted) {
+        setState(() {
+          username = 'User';
+        });
+      }
     }
   }
 
+  // Load allergen count from Firebase
   Future<void> loadAllergenCount() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
@@ -99,19 +183,23 @@ class _UserProfileState extends State<UserProfile> {
                 .where('type', isEqualTo: 'allergen')
                 .get();
 
-        setState(() {
-          allergenCount = profileSnapshot.docs.length;
-        });
+        if (mounted) {
+          setState(() {
+            allergenCount = profileSnapshot.docs.length;
+          });
+        }
       }
     } catch (e) {
       print('Error loading allergen count: $e');
-      setState(() {
-        allergenCount = 0;
-      });
+      if (mounted) {
+        setState(() {
+          allergenCount = 0;
+        });
+      }
     }
   }
 
-  // Added method to load scan history count
+  // Load scan history count from Firebase
   Future<void> loadScanHistoryCount() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
@@ -123,15 +211,19 @@ class _UserProfileState extends State<UserProfile> {
                 .collection('history')
                 .get();
 
-        setState(() {
-          scanHistoryCount = historySnapshot.docs.length;
-        });
+        if (mounted) {
+          setState(() {
+            scanHistoryCount = historySnapshot.docs.length;
+          });
+        }
       }
     } catch (e) {
       print('Error loading scan history count: $e');
-      setState(() {
-        scanHistoryCount = 0;
-      });
+      if (mounted) {
+        setState(() {
+          scanHistoryCount = 0;
+        });
+      }
     }
   }
 
@@ -150,8 +242,8 @@ class _UserProfileState extends State<UserProfile> {
         .snapshots();
   }
 
+  // Handle scan action
   void _scanAction() {
-    // Handle scan action
     print('Scan button pressed');
     Navigator.push(
       context,
@@ -159,6 +251,7 @@ class _UserProfileState extends State<UserProfile> {
     );
   }
 
+  // Show logout confirmation dialog
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -193,7 +286,7 @@ class _UserProfileState extends State<UserProfile> {
                 Expanded(
                   child: TextButton(
                     onPressed: () {
-                      Navigator.of(context).pop(); // Close dialog
+                      Navigator.of(context).pop();
                     },
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -217,7 +310,7 @@ class _UserProfileState extends State<UserProfile> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.of(context).pop(); // Close dialog
+                      Navigator.of(context).pop();
                       _performLogout();
                     },
                     style: ElevatedButton.styleFrom(
@@ -246,26 +339,30 @@ class _UserProfileState extends State<UserProfile> {
     );
   }
 
-  void _performLogout() {
-    // Add your logout logic here
-    // For example: clear user data, tokens, etc.
-    print('User logged out');
+  // Perform logout
+  void _performLogout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      print('User logged out');
 
-    // Navigate to login screen or initial screen
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => LoginScreen()));
-
-    // For now, just show a message
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Logged out successfully',
-          style: TextStyle(fontFamily: 'Poppins'),
-        ),
-        backgroundColor: Color(0xFF1AA2CC),
-      ),
-    );
+      // Navigate to login screen and clear the navigation stack
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => LoginScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      print('Error during logout: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error logging out: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -280,8 +377,7 @@ class _UserProfileState extends State<UserProfile> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                physics:
-                    const AlwaysScrollableScrollPhysics(), // Changed for pull-to-refresh
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Container(
                   color: AppColors.primaryColor3,
                   child: Stack(
@@ -323,7 +419,7 @@ class _UserProfileState extends State<UserProfile> {
                               child: Column(
                                 children: [
                                   const SizedBox(height: 50),
-                                  // User name - now displays fetched username
+                                  // User name
                                   Text(
                                     username,
                                     style: const TextStyle(
@@ -350,7 +446,7 @@ class _UserProfileState extends State<UserProfile> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceEvenly,
                                       children: [
-                                        // Allergen section - now displays actual count
+                                        // Allergen section
                                         Expanded(
                                           child: Column(
                                             children: [
@@ -403,7 +499,7 @@ class _UserProfileState extends State<UserProfile> {
                                           height: 60,
                                           color: Colors.white.withOpacity(0.3),
                                         ),
-                                        // Scan history section - now displays actual count
+                                        // Scan history section
                                         Expanded(
                                           child: Column(
                                             children: [
@@ -438,7 +534,7 @@ class _UserProfileState extends State<UserProfile> {
                                               Text(
                                                 isLoading
                                                     ? '...'
-                                                    : '$scanHistoryCount', // Updated to show actual count
+                                                    : '$scanHistoryCount',
                                                 style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 24,
@@ -475,8 +571,8 @@ class _UserProfileState extends State<UserProfile> {
                                               icon: Icons.person_outline,
                                               label: 'Personal Details',
                                               showBorder: true,
-                                              onTap: () {
-                                                Navigator.push(
+                                              onTap: () async {
+                                                await Navigator.push(
                                                   context,
                                                   MaterialPageRoute(
                                                     builder:
@@ -484,6 +580,7 @@ class _UserProfileState extends State<UserProfile> {
                                                             EditProfileDetailsScreen(),
                                                   ),
                                                 );
+                                                _refreshUserData();
                                               },
                                             ),
                                             _buildSettingItem(
@@ -491,8 +588,8 @@ class _UserProfileState extends State<UserProfile> {
                                                   Icons.local_hospital_outlined,
                                               label: 'Allergen Profile',
                                               showBorder: true,
-                                              onTap: () {
-                                                Navigator.push(
+                                              onTap: () async {
+                                                await Navigator.push(
                                                   context,
                                                   MaterialPageRoute(
                                                     builder:
@@ -500,14 +597,15 @@ class _UserProfileState extends State<UserProfile> {
                                                             AllergenProfileScreen(),
                                                   ),
                                                 );
+                                                _refreshUserData();
                                               },
                                             ),
                                             _buildSettingItem(
                                               icon: Icons.history,
                                               label: 'Scan History',
                                               showBorder: true,
-                                              onTap: () {
-                                                Navigator.push(
+                                              onTap: () async {
+                                                await Navigator.push(
                                                   context,
                                                   MaterialPageRoute(
                                                     builder:
@@ -515,14 +613,15 @@ class _UserProfileState extends State<UserProfile> {
                                                             ScanHistoryScreen(),
                                                   ),
                                                 );
+                                                _refreshUserData();
                                               },
                                             ),
                                             _buildSettingItem(
                                               icon: Icons.phone,
                                               label: 'Emergency Contact',
                                               showBorder: false,
-                                              onTap: () {
-                                                Navigator.push(
+                                              onTap: () async {
+                                                await Navigator.push(
                                                   context,
                                                   MaterialPageRoute(
                                                     builder:
@@ -530,72 +629,25 @@ class _UserProfileState extends State<UserProfile> {
                                                           context,
                                                         ) => EmergencySettingsScreen(
                                                           emergencyContacts:
-                                                              widget
-                                                                  .emergencyService
-                                                                  .emergencyContacts,
+                                                              _emergencyContacts,
                                                           emergencySettings:
-                                                              widget
-                                                                  .emergencyService
-                                                                  .emergencySettings,
+                                                              _emergencySettings,
                                                           emergencyService:
                                                               widget
-                                                                  .emergencyService, // Add this line
-                                                          onSave: (
-                                                            contacts,
-                                                            settings,
-                                                          ) async {
-                                                            // Try one of these approaches based on your EmergencyService methods:
-
-                                                            // Option 1: If you have saveContacts/saveSettings methods
-                                                            // await widget.emergencyService.saveContacts(contacts);
-                                                            // await widget.emergencyService.saveSettings(settings);
-
-                                                            // Option 2: If you have a single save method
-                                                            // await widget.emergencyService.save(contacts, settings);
-
-                                                            // Option 3: If you have setters
-                                                            // widget.emergencyService.emergencyContacts = contacts;
-                                                            // widget.emergencyService.emergencySettings = settings;
-                                                            // await widget.emergencyService.saveToStorage();
-
-                                                            // Option 4: If you have individual setters
-                                                            // await widget.emergencyService.setEmergencyContacts(contacts);
-                                                            // await widget.emergencyService.setEmergencySettings(settings);
-
-                                                            // Refresh the service data and UI
-                                                            await widget
-                                                                .emergencyService
-                                                                .forceReload();
-                                                            if (mounted) {
-                                                              setState(() {});
-                                                            }
-                                                          },
+                                                                  .emergencyService,
+                                                          onSave:
+                                                              _handleSettingsSave,
                                                         ),
                                                   ),
                                                 );
-
-                                                //                                                 Navigator.push(
-                                                //   context,
-                                                //   MaterialPageRoute(
-                                                //     builder: (context) => EmergencySettingsScreen(
-                                                //       emergencyContacts: contacts,
-                                                //       emergencySettings: settings,
-                                                //       emergencyService: emergencyService, // Add this line
-                                                //       onSave: (contacts, settings) {
-                                                //         // Handle save
-                                                //       },
-                                                //     ),
-                                                //   ),
-                                                // );
+                                                _loadSettings();
                                               },
                                             ),
                                           ],
                                         ),
                                       ),
                                       const SizedBox(height: 16),
-                                      // Second settings group
-
-                                      // Privacy
+                                      // Second settings group - Privacy
                                       Container(
                                         decoration: BoxDecoration(
                                           color: Colors.white,
@@ -626,7 +678,7 @@ class _UserProfileState extends State<UserProfile> {
                                             ),
                                             _buildSettingItem(
                                               icon: Icons.article,
-                                              label: 'Terms and Condition ',
+                                              label: 'Terms and Condition',
                                               showBorder: true,
                                               onTap: () {
                                                 Navigator.push(
@@ -677,9 +729,7 @@ class _UserProfileState extends State<UserProfile> {
                                           onTap: _showLogoutDialog,
                                         ),
                                       ),
-                                      const SizedBox(
-                                        height: 120,
-                                      ), // Extra space for bottom navigation
+                                      const SizedBox(height: 120),
                                     ],
                                   ),
                                 ],
@@ -688,6 +738,7 @@ class _UserProfileState extends State<UserProfile> {
                           ),
                         ],
                       ),
+                      // Profile image positioned overlay
                       Positioned(
                         top: 100,
                         left: MediaQuery.sizeOf(context).width / 2 - 60,
@@ -707,11 +758,15 @@ class _UserProfileState extends State<UserProfile> {
                                       profileImageUrl!,
                                       fit: BoxFit.cover,
                                       errorBuilder:
-                                          (context, error, stackTrace) => Icon(
-                                            Icons.person,
-                                            size: 60,
-                                            color: Colors.white,
-                                          ),
+                                          (context, error, stackTrace) =>
+                                              Container(
+                                                color: AppColors.primaryColor3,
+                                                child: const Icon(
+                                                  Icons.person,
+                                                  size: 60,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
                                     )
                                     : Container(
                                       color: AppColors.primaryColor3,
@@ -729,7 +784,7 @@ class _UserProfileState extends State<UserProfile> {
                 ),
               ),
             ),
-            // Bottom Navigation - Fixed positioning
+            // Bottom Navigation
             Container(
               margin: const EdgeInsets.all(20),
               height: 80,
@@ -748,7 +803,7 @@ class _UserProfileState extends State<UserProfile> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // Home button (left side)
+                  // Home button
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -769,8 +824,7 @@ class _UserProfileState extends State<UserProfile> {
                       },
                     ),
                   ),
-
-                  // Scan button (center)
+                  // Scan button
                   GestureDetector(
                     onTap: _scanAction,
                     child: Image.asset(
@@ -786,8 +840,7 @@ class _UserProfileState extends State<UserProfile> {
                       },
                     ),
                   ),
-
-                  // Profile/User button (right side)
+                  // Profile button
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -861,12 +914,7 @@ class _UserProfileState extends State<UserProfile> {
           size: 20,
           color: Color(0xFF9CA3AF),
         ),
-        onTap:
-            onTap ??
-            () {
-              // Handle navigation
-              print('Tapped: $label');
-            },
+        onTap: onTap ?? () => print('Tapped: $label'),
       ),
     );
   }

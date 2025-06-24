@@ -1,77 +1,297 @@
-// screens/emergency_settings_screen.dart
-import 'package:allergen/styleguide.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
+import 'package:allergen/styleguide.dart';
 import 'package:allergen/widgets/emergency_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/emergency_contact.dart';
 import '../models/emergency_settings.dart';
 
 class EmergencySettingsScreen extends StatefulWidget {
   final List<EmergencyContact> emergencyContacts;
   final EmergencySettings emergencySettings;
-  final EmergencyService emergencyService; // Add this parameter
+  final EmergencyService emergencyService;
   final Function(List<EmergencyContact>, EmergencySettings) onSave;
 
   const EmergencySettingsScreen({
     Key? key,
     required this.emergencyContacts,
     required this.emergencySettings,
-    required this.emergencyService, // Add this parameter
+    required this.emergencyService,
     required this.onSave,
   }) : super(key: key);
 
   @override
-  _EmergencySettingsScreenState createState() =>
+  State<EmergencySettingsScreen> createState() =>
       _EmergencySettingsScreenState();
 }
 
 class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
   late List<EmergencyContact> _contacts;
   late EmergencySettings _settings;
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _emergencyNumberController =
-      TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emergencyNumberController = TextEditingController();
+  final _searchController = TextEditingController();
 
   bool _hasUnsavedChanges = false;
+  List<Contact> _phoneContacts = [];
+  List<Contact> _filteredContacts = [];
+  bool _isLoadingContacts = false;
 
   @override
   void initState() {
     super.initState();
     _contacts = List.from(widget.emergencyContacts);
-    _settings = widget.emergencySettings.copyWith(); // Make a copy
+    _settings = widget.emergencySettings.copyWith();
     _emergencyNumberController.text = _settings.emergencyServiceNumber;
   }
 
   void _markAsChanged() {
-    if (!_hasUnsavedChanges) {
-      setState(() {
-        _hasUnsavedChanges = true;
-      });
+    if (!_hasUnsavedChanges) setState(() => _hasUnsavedChanges = true);
+  }
+
+  Future<void> _requestContactsPermission() async {
+    final permission = await FlutterContacts.requestPermission();
+    if (permission) {
+      await _loadPhoneContacts();
+    } else {
+      _showPermissionDialog();
     }
   }
 
-  void _addContact() {
+  Future<void> _loadPhoneContacts() async {
+    setState(() => _isLoadingContacts = true);
+    try {
+      final contacts = await FlutterContacts.getContacts(withProperties: true);
+      setState(() {
+        _phoneContacts =
+            contacts
+                .where((c) => c.phones.isNotEmpty && c.displayName.isNotEmpty)
+                .toList()
+              ..sort(
+                (a, b) => a.displayName.toLowerCase().compareTo(
+                  b.displayName.toLowerCase(),
+                ),
+              );
+        _filteredContacts = List.from(_phoneContacts);
+        _isLoadingContacts = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingContacts = false);
+      _showSnackBar('Error loading contacts: $e', Colors.red);
+    }
+  }
+
+  void _filterContacts(String query) {
+    setState(() {
+      _filteredContacts =
+          query.isEmpty
+              ? List.from(_phoneContacts)
+              : _phoneContacts
+                  .where(
+                    (c) =>
+                        c.displayName.toLowerCase().contains(
+                          query.toLowerCase(),
+                        ) ||
+                        c.phones.any(
+                          (p) => p.number
+                              .replaceAll(RegExp(r'[^\d+]'), '')
+                              .contains(query),
+                        ),
+                  )
+                  .toList();
+    });
+  }
+
+  void _showPermissionDialog() {
     showDialog(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: Text('Add Emergency Contact'),
+            title: const Text('Contacts Permission Required'),
+            content: const Text(
+              'Grant contacts permission to import contacts from your phone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _requestContactsPermission();
+                },
+                child: const Text('Grant Permission'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showContactImportDialog() async {
+    final status = await Permission.contacts.status;
+    if (!status.isGranted) {
+      await _requestContactsPermission();
+      return;
+    }
+
+    if (_phoneContacts.isEmpty) await _loadPhoneContacts();
+    _searchController.clear();
+    _filteredContacts = List.from(_phoneContacts);
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => StatefulBuilder(
+            builder:
+                (context, setState) => AlertDialog(
+                  title: const Text('Import from Contacts'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    height: 400,
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _searchController,
+                          decoration: const InputDecoration(
+                            labelText: 'Search contacts',
+                            prefixIcon: Icon(Icons.search),
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (value) {
+                            _filterContacts(value);
+                            setState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child:
+                              _isLoadingContacts
+                                  ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                  : _filteredContacts.isEmpty
+                                  ? const Center(
+                                    child: Text('No contacts found'),
+                                  )
+                                  : ListView.builder(
+                                    itemCount: _filteredContacts.length,
+                                    itemBuilder: (context, index) {
+                                      final contact = _filteredContacts[index];
+                                      return ExpansionTile(
+                                        leading: CircleAvatar(
+                                          child: Text(
+                                            contact.displayName[0]
+                                                .toUpperCase(),
+                                          ),
+                                        ),
+                                        title: Text(contact.displayName),
+                                        subtitle: Text(
+                                          '${contact.phones.length} phone number(s)',
+                                        ),
+                                        children:
+                                            contact.phones.map((phone) {
+                                              final phoneNumber = phone.number
+                                                  .replaceAll(
+                                                    RegExp(r'[^\d+]'),
+                                                    '',
+                                                  );
+                                              final isAdded = _contacts.any(
+                                                (c) =>
+                                                    c.phoneNumber ==
+                                                    phoneNumber,
+                                              );
+                                              return ListTile(
+                                                title: Text(phoneNumber),
+                                                subtitle: Text(
+                                                  phone.label.toString(),
+                                                ),
+                                                trailing:
+                                                    isAdded
+                                                        ? const Icon(
+                                                          Icons.check,
+                                                          color: Colors.green,
+                                                        )
+                                                        : IconButton(
+                                                          icon: const Icon(
+                                                            Icons.add,
+                                                          ),
+                                                          onPressed: () {
+                                                            _addContactFromPhone(
+                                                              contact
+                                                                  .displayName,
+                                                              phoneNumber,
+                                                            );
+                                                            setState(() {});
+                                                          },
+                                                        ),
+                                              );
+                                            }).toList(),
+                                      );
+                                    },
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+          ),
+    );
+  }
+
+  void _addContactFromPhone(String name, String phoneNumber) {
+    if (_contacts.any((c) => c.phoneNumber == phoneNumber)) {
+      _showSnackBar('Contact already exists', Colors.orange);
+      return;
+    }
+
+    setState(() {
+      _contacts.add(
+        EmergencyContact(
+          id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+          name: name,
+          phoneNumber: phoneNumber,
+          priority: _contacts.length + 1,
+          sendLocationSMS: true,
+        ),
+      );
+      _markAsChanged();
+    });
+    _showSnackBar('$name added to emergency contacts', Colors.green);
+  }
+
+  void _showAddContactDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Add Emergency Contact'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: _nameController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Name *',
                     border: OutlineInputBorder(),
                   ),
                   textCapitalization: TextCapitalization.words,
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _phoneController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Phone Number *',
                     border: OutlineInputBorder(),
                     prefixText: '+',
@@ -87,7 +307,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   _phoneController.clear();
                   Navigator.pop(context);
                 },
-                child: Text('Cancel'),
+                child: const Text('Cancel'),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -95,20 +315,17 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   final phone = _phoneController.text.trim();
 
                   if (name.isEmpty || phone.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Please fill in all required fields'),
-                      ),
+                    _showSnackBar(
+                      'Please fill in all required fields',
+                      Colors.red,
                     );
                     return;
                   }
 
-                  // Check for duplicate phone numbers
                   if (_contacts.any((c) => c.phoneNumber == phone)) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('This phone number already exists'),
-                      ),
+                    _showSnackBar(
+                      'This phone number already exists',
+                      Colors.red,
                     );
                     return;
                   }
@@ -116,11 +333,11 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   setState(() {
                     _contacts.add(
                       EmergencyContact(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                        id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
                         name: name,
                         phoneNumber: phone,
                         priority: _contacts.length + 1,
-                        sendLocationSMS: true, // Default to true
+                        sendLocationSMS: true,
                       ),
                     );
                     _markAsChanged();
@@ -130,7 +347,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   _phoneController.clear();
                   Navigator.pop(context);
                 },
-                child: Text('Add'),
+                child: const Text('Add'),
               ),
             ],
           ),
@@ -145,36 +362,35 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
       context: context,
       builder:
           (context) => AlertDialog(
-            title: Text('Edit Contact'),
+            title: const Text('Edit Contact'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: _nameController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Name *',
                     border: OutlineInputBorder(),
                   ),
                   textCapitalization: TextCapitalization.words,
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _phoneController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Phone Number *',
                     border: OutlineInputBorder(),
                     prefixText: '+',
                   ),
                   keyboardType: TextInputType.phone,
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 SwitchListTile(
-                  title: Text('Send Location SMS'),
-                  subtitle: Text('Include location in emergency messages'),
+                  title: const Text('Send Location SMS'),
                   value: contact.sendLocationSMS,
                   onChanged: (value) {
                     setState(() {
-                      int index = _contacts.indexWhere(
+                      final index = _contacts.indexWhere(
                         (c) => c.id == contact.id,
                       );
                       if (index != -1) {
@@ -195,7 +411,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   _phoneController.clear();
                   Navigator.pop(context);
                 },
-                child: Text('Cancel'),
+                child: const Text('Cancel'),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -203,28 +419,27 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   final phone = _phoneController.text.trim();
 
                   if (name.isEmpty || phone.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Please fill in all required fields'),
-                      ),
+                    _showSnackBar(
+                      'Please fill in all required fields',
+                      Colors.red,
                     );
                     return;
                   }
 
-                  // Check for duplicate phone numbers (excluding current contact)
                   if (_contacts.any(
                     (c) => c.phoneNumber == phone && c.id != contact.id,
                   )) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('This phone number already exists'),
-                      ),
+                    _showSnackBar(
+                      'This phone number already exists',
+                      Colors.red,
                     );
                     return;
                   }
 
                   setState(() {
-                    int index = _contacts.indexWhere((c) => c.id == contact.id);
+                    final index = _contacts.indexWhere(
+                      (c) => c.id == contact.id,
+                    );
                     if (index != -1) {
                       _contacts[index] = _contacts[index].copyWith(
                         name: name,
@@ -238,7 +453,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   _phoneController.clear();
                   Navigator.pop(context);
                 },
-                child: Text('Save'),
+                child: const Text('Save'),
               ),
             ],
           ),
@@ -250,30 +465,27 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
       context: context,
       builder:
           (context) => AlertDialog(
-            title: Text('Delete Contact'),
+            title: const Text('Delete Contact'),
             content: Text('Remove "${contact.name}" from emergency contacts?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('Cancel'),
+                child: const Text('Cancel'),
               ),
               ElevatedButton(
                 onPressed: () {
+                  Navigator.pop(context);
                   setState(() {
                     _contacts.removeWhere((c) => c.id == contact.id);
-                    // Reorder priorities
                     for (int i = 0; i < _contacts.length; i++) {
                       _contacts[i] = _contacts[i].copyWith(priority: i + 1);
                     }
                     _markAsChanged();
                   });
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${contact.name} removed')),
-                  );
+                  _showSnackBar('${contact.name} removed', Colors.red);
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: Text('Delete'),
+                child: const Text('Delete'),
               ),
             ],
           ),
@@ -282,13 +494,9 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
 
   void _reorderContacts(int oldIndex, int newIndex) {
     setState(() {
-      if (newIndex > oldIndex) {
-        newIndex -= 1;
-      }
+      if (newIndex > oldIndex) newIndex -= 1;
       final contact = _contacts.removeAt(oldIndex);
       _contacts.insert(newIndex, contact);
-
-      // Update priorities
       for (int i = 0; i < _contacts.length; i++) {
         _contacts[i] = _contacts[i].copyWith(priority: i + 1);
       }
@@ -309,76 +517,66 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
     }
   }
 
-  Future<bool> _onWillPop() async {
-    if (!_hasUnsavedChanges) return true;
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Unsaved Changes'),
-            content: Text(
-              'You have unsaved changes. What would you like to do?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text('Keep Editing'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text('Discard Changes'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _saveSettings();
-                  Navigator.of(context).pop(true);
-                },
-                child: Text('Save & Exit'),
-              ),
-            ],
-          ),
-    );
-    return result ?? false;
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
-  void _saveSettings() {
-    // Update emergency service number from controller
+  Future<void> _saveSettings() async {
     final emergencyNumber = _emergencyNumberController.text.trim();
     if (emergencyNumber.isNotEmpty) {
       _settings = _settings.copyWith(emergencyServiceNumber: emergencyNumber);
     }
 
-    widget.onSave(_contacts, _settings);
-    setState(() {
-      _hasUnsavedChanges = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Settings saved successfully'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    try {
+      widget.onSave(_contacts, _settings);
+      setState(() => _hasUnsavedChanges = false);
+      _showSnackBar('Settings saved successfully', Colors.green);
+    } catch (e) {
+      _showSnackBar('Error saving settings. Please try again.', Colors.red);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: _onWillPop,
+      onWillPop: () async {
+        if (_hasUnsavedChanges) {
+          final result = await showDialog<bool>(
+            context: context,
+            builder:
+                (context) => AlertDialog(
+                  title: const Text('Unsaved Changes'),
+                  content: const Text(
+                    'You have unsaved changes. Save before leaving?',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Discard'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () async {
+                        await _saveSettings();
+                        Navigator.pop(context, true);
+                      },
+                      child: const Text('Save & Exit'),
+                    ),
+                  ],
+                ),
+          );
+          return result ?? false;
+        }
+        return true;
+      },
       child: Scaffold(
         backgroundColor: AppColors.defaultbackground,
         appBar: AppBar(
           backgroundColor: AppColors.primary,
-          elevation: 0,
           title: const Text(
             'Emergency Contacts',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
           ),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -388,56 +586,33 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
             if (_hasUnsavedChanges)
               IconButton(
                 onPressed: _saveSettings,
-                icon: Icon(Icons.save),
+                icon: const Icon(Icons.save, color: Colors.white),
                 tooltip: 'Save Changes',
               ),
           ],
         ),
         body: SingleChildScrollView(
-          padding: EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Emergency Widget Section
               EmergencyWidget(
                 emergencyService: widget.emergencyService,
-                showSettings:
-                    false, // Hide settings since we're in settings screen
+                showSettings: false,
                 showStatus: true,
               ),
-              SizedBox(height: 24),
-
-              // Emergency Contacts Section
+              const SizedBox(height: 24),
               _buildContactsSection(),
-              SizedBox(height: 16),
-
-              // Location Settings
-              _buildLocationSettings(),
-              SizedBox(height: 16),
-
-              // Call Settings
-              _buildCallSettings(),
-              SizedBox(height: 16),
-
-              // Interface Settings
-              _buildInterfaceSettings(),
-              SizedBox(height: 24),
-
-              // Save Button
+              const SizedBox(height: 16),
+              _buildSettingsSection(),
+              const SizedBox(height: 24),
               if (_hasUnsavedChanges)
-                Center(
-                  child: ElevatedButton.icon(
-                    onPressed: _saveSettings,
-                    icon: Icon(Icons.save),
-                    label: Text('Save All Changes'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 12,
-                      ),
-                    ),
+                ElevatedButton.icon(
+                  onPressed: _saveSettings,
+                  icon: const Icon(Icons.save),
+                  label: const Text('Save All Changes'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
                   ),
                 ),
             ],
@@ -450,7 +625,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
   Widget _buildContactsSection() {
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -459,27 +634,44 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
               children: [
                 Text(
                   'Emergency Contacts (${_contacts.length})',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: _addContact,
-                  icon: Icon(Icons.add),
-                  label: Text('Add'),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _showContactImportDialog,
+                      icon: const Icon(Icons.contacts),
+                      label: const Text('Import'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _showAddContactDialog,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add'),
+                    ),
+                  ],
                 ),
               ],
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             if (_contacts.isEmpty)
-              Container(
-                padding: EdgeInsets.all(20),
-                child: Center(
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
                   child: Column(
                     children: [
                       Icon(Icons.contacts, size: 48, color: Colors.grey),
                       SizedBox(height: 8),
                       Text(
                         'No emergency contacts added yet',
-                        style: TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: Colors.grey),
                       ),
                     ],
                   ),
@@ -488,20 +680,20 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
             else
               ReorderableListView.builder(
                 shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
+                physics: const NeverScrollableScrollPhysics(),
                 itemCount: _contacts.length,
                 onReorder: _reorderContacts,
                 itemBuilder: (context, index) {
                   final contact = _contacts[index];
                   return Card(
                     key: ValueKey(contact.id),
-                    margin: EdgeInsets.only(bottom: 8),
+                    margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.blue,
                         child: Text(
                           '${contact.priority}',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
@@ -513,7 +705,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                         children: [
                           Text(contact.phoneNumber),
                           if (contact.sendLocationSMS)
-                            Text(
+                            const Text(
                               '📍 Location SMS enabled',
                               style: TextStyle(
                                 fontSize: 12,
@@ -527,15 +719,13 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                         children: [
                           IconButton(
                             onPressed: () => _editContact(contact),
-                            icon: Icon(Icons.edit),
-                            tooltip: 'Edit',
+                            icon: const Icon(Icons.edit),
                           ),
                           IconButton(
                             onPressed: () => _deleteContact(contact),
-                            icon: Icon(Icons.delete, color: Colors.red),
-                            tooltip: 'Delete',
+                            icon: const Icon(Icons.delete, color: Colors.red),
                           ),
-                          Icon(Icons.drag_handle, color: Colors.grey),
+                          const Icon(Icons.drag_handle, color: Colors.grey),
                         ],
                       ),
                     ),
@@ -548,23 +738,20 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
     );
   }
 
-  Widget _buildLocationSettings() {
+  Widget _buildSettingsSection() {
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Location Settings',
+            const Text(
+              'Settings',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             SwitchListTile(
-              title: Text('Send location to all contacts'),
-              subtitle: Text(
-                'Automatically send SMS with location to all emergency contacts',
-              ),
+              title: const Text('Auto-send location to all contacts'),
               value: _settings.autoSendLocationToAll,
               onChanged:
                   (value) => _updateSetting(
@@ -574,40 +761,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   ),
             ),
             SwitchListTile(
-              title: Text('Send location to current contact'),
-              subtitle: Text(
-                'Send SMS with location to the contact being called',
-              ),
-              value: _settings.autoSendLocationToCurrentContact,
-              onChanged:
-                  (value) => _updateSetting(
-                    value,
-                    (s) => s.autoSendLocationToCurrentContact,
-                    (v) =>
-                        _settings.copyWith(autoSendLocationToCurrentContact: v),
-                  ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCallSettings() {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Call Settings',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            SwitchListTile(
-              title: Text('Play alert sound'),
-              subtitle: Text('Play sound before making emergency calls'),
+              title: const Text('Play alert sound'),
               value: _settings.playAlertSound,
               onChanged:
                   (value) => _updateSetting(
@@ -617,10 +771,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   ),
             ),
             SwitchListTile(
-              title: Text('Auto-call emergency services'),
-              subtitle: Text(
-                'Automatically call emergency services if no contacts respond',
-              ),
+              title: const Text('Auto-call emergency services'),
               value: _settings.autoCallEmergencyServices,
               onChanged:
                   (value) => _updateSetting(
@@ -630,70 +781,39 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
                   ),
             ),
             ListTile(
-              title: Text('Call timeout'),
-              subtitle: Text('Time to wait before trying next contact'),
+              title: const Text('Call timeout'),
               trailing: DropdownButton<int>(
                 value: _settings.callTimeoutSeconds,
                 items:
-                    [15, 30, 45, 60].map((seconds) {
-                      return DropdownMenuItem(
-                        value: seconds,
-                        child: Text('${seconds}s'),
-                      );
-                    }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    _updateSetting(
-                      value,
-                      (s) => s.callTimeoutSeconds,
-                      (v) => _settings.copyWith(callTimeoutSeconds: v),
-                    );
-                  }
-                },
+                    [15, 30, 45, 60]
+                        .map(
+                          (s) =>
+                              DropdownMenuItem(value: s, child: Text('${s}s')),
+                        )
+                        .toList(),
+                onChanged:
+                    (value) =>
+                        value != null
+                            ? _updateSetting(
+                              value,
+                              (s) => s.callTimeoutSeconds,
+                              (v) => _settings.copyWith(callTimeoutSeconds: v),
+                            )
+                            : null,
               ),
             ),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(8),
               child: TextField(
                 controller: _emergencyNumberController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Emergency Service Number',
                   border: OutlineInputBorder(),
-                  helperText: 'Number to call when all contacts are exhausted',
                   prefixIcon: Icon(Icons.emergency),
                 ),
                 keyboardType: TextInputType.phone,
-                onChanged: (value) => _markAsChanged(),
+                onChanged: (_) => _markAsChanged(),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInterfaceSettings() {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Interface Settings',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            SwitchListTile(
-              title: Text('Enable drag to cancel'),
-              subtitle: Text('Allow dragging down to cancel emergency call'),
-              value: _settings.enableDragToCancel,
-              onChanged:
-                  (value) => _updateSetting(
-                    value,
-                    (s) => s.enableDragToCancel,
-                    (v) => _settings.copyWith(enableDragToCancel: v),
-                  ),
             ),
           ],
         ),
@@ -706,6 +826,7 @@ class _EmergencySettingsScreenState extends State<EmergencySettingsScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _emergencyNumberController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 }

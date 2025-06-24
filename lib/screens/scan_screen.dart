@@ -525,7 +525,9 @@ Risk levels: "severe", "moderate", "mild", or "safe"
                     MaterialPageRoute(
                       builder:
                           (_) =>
-                              UserProfile(emergencyService: EmergencyService()),
+                              UserProfile(emergencyService: EmergencyService(
+                                
+                              )),
                     ),
                   ),
                 ),

@@ -53,6 +53,7 @@ dependencies:
   image_picker: ^1.1.2
   intl: ^0.20.2
   permission_handler: ^12.0.0+1
+  phone_state: ^2.1.1
   shared_preferences: ^2.5.3
   telephony: ^0.2.0
   url_launcher: ^6.3.1
@@ -78,8 +79,6 @@ flutter:
     - assets/anaphylaxis/
     - assets/navigation/
     - assets/sounds/
-
-
 
 flutter_icons:
   android: true
