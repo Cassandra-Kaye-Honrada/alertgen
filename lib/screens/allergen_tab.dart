@@ -119,20 +119,180 @@ class _AllergenTabState extends State<AllergenTab> {
   }
 
   String _extractCategory(String productName) {
-    // Simple category extraction - you can make this more sophisticated
     String name = productName.toLowerCase();
 
-    if (name.contains('milk') || name.contains('dairy')) return 'milk';
-    if (name.contains('bread') || name.contains('wheat')) return 'bread';
-    if (name.contains('cookie') || name.contains('biscuit')) return 'cookies';
-    if (name.contains('chocolate')) return 'chocolate';
-    if (name.contains('cheese')) return 'cheese';
-    if (name.contains('yogurt') || name.contains('yoghurt')) return 'yogurt';
-    if (name.contains('cereal')) return 'cereal';
-    if (name.contains('snack')) return 'snacks';
+    // Noodle and instant noodle products
+    if (name.contains('pancit') ||
+        name.contains('canton') ||
+        name.contains('noodle') ||
+        name.contains('ramen') ||
+        name.contains('instant noodle') ||
+        name.contains('spaghetti') ||
+        name.contains('pasta') ||
+        name.contains('mami') ||
+        name.contains('sotanghon') ||
+        name.contains('bihon') ||
+        name.contains('miki')) {
+      return 'noodles instant noodles';
+    }
 
-    // Return first word as fallback
-    return productName.split(' ').first;
+    // Dairy products
+    if (name.contains('milk') ||
+        name.contains('dairy') ||
+        name.contains('gatas')) {
+      return 'milk dairy';
+    }
+
+    // Bread and baked goods
+    if (name.contains('bread') ||
+        name.contains('tinapay') ||
+        name.contains('pandesal') ||
+        name.contains('wheat') ||
+        name.contains('loaf')) {
+      return 'bread baked goods';
+    }
+
+    // Cookies and biscuits
+    if (name.contains('cookie') ||
+        name.contains('biscuit') ||
+        name.contains('galletas') ||
+        name.contains('crackers')) {
+      return 'cookies biscuits';
+    }
+
+    // Chocolate products
+    if (name.contains('chocolate') ||
+        name.contains('choco') ||
+        name.contains('cocoa') ||
+        name.contains('tsokolate')) {
+      return 'chocolate';
+    }
+
+    // Cheese products
+    if (name.contains('cheese') ||
+        name.contains('keso') ||
+        name.contains('queso')) {
+      return 'cheese';
+    }
+
+    // Yogurt products
+    if (name.contains('yogurt') ||
+        name.contains('yoghurt') ||
+        name.contains('greek yogurt')) {
+      return 'yogurt';
+    }
+
+    // Cereal products
+    if (name.contains('cereal') ||
+        name.contains('cornflakes') ||
+        name.contains('oats') ||
+        name.contains('granola') ||
+        name.contains('muesli')) {
+      return 'cereal breakfast';
+    }
+
+    // Snack products
+    if (name.contains('chips') ||
+        name.contains('snack') ||
+        name.contains('crackers') ||
+        name.contains('nuts') ||
+        name.contains('pretzels')) {
+      return 'snacks chips';
+    }
+
+    // Rice products
+    if (name.contains('rice') ||
+        name.contains('bigas') ||
+        name.contains('kanin') ||
+        name.contains('fried rice')) {
+      return 'rice';
+    }
+
+    // Canned goods
+    if (name.contains('canned') ||
+        name.contains('sardines') ||
+        name.contains('corned beef') ||
+        name.contains('lata')) {
+      return 'canned goods';
+    }
+
+    // Sauce and condiments
+    if (name.contains('sauce') ||
+        name.contains('ketchup') ||
+        name.contains('soy sauce') ||
+        name.contains('vinegar') ||
+        name.contains('sarsa')) {
+      return 'sauce condiments';
+    }
+
+    // Beverages
+    if (name.contains('juice') ||
+        name.contains('drink') ||
+        name.contains('soda') ||
+        name.contains('water') ||
+        name.contains('coffee') ||
+        name.contains('tea')) {
+      return 'beverages drinks';
+    }
+
+    // Meat products
+    if (name.contains('meat') ||
+        name.contains('beef') ||
+        name.contains('pork') ||
+        name.contains('chicken') ||
+        name.contains('karne')) {
+      return 'meat products';
+    }
+
+    // Seafood
+    if (name.contains('fish') ||
+        name.contains('tuna') ||
+        name.contains('salmon') ||
+        name.contains('shrimp') ||
+        name.contains('isda')) {
+      return 'seafood fish';
+    }
+
+    List<String> words = name.split(' ');
+    List<String> meaningfulWords = [];
+
+    List<String> brandNames = [
+      'lucky me',
+      'nestle',
+      'unilever',
+      'del monte',
+      'maggi',
+      'knorr',
+    ];
+    List<String> commonWords = [
+      'the',
+      'and',
+      'or',
+      'with',
+      'in',
+      'of',
+      'me',
+      'my',
+    ];
+
+    for (String word in words) {
+      if (!brandNames.any((brand) => brand.contains(word)) &&
+          !commonWords.contains(word) &&
+          word.length > 2) {
+        meaningfulWords.add(word);
+      }
+    }
+
+    if (meaningfulWords.isNotEmpty) {
+      return meaningfulWords.take(2).join(' ');
+    }
+
+    return name
+        .replaceAll(
+          RegExp(r'\b(lucky me|nestle|unilever|del monte|maggi|knorr)\b'),
+          '',
+        )
+        .trim();
   }
 
   List<String> _getAllergenCodes(List<AllergenInfo> allergens) {
