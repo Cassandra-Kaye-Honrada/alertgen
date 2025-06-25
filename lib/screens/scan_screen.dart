@@ -181,10 +181,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
       print('OCR Text extracted: $ocrText'); // Debug log
 
       if (ocrText.isNotEmpty && _isLabeledProduct(ocrText)) {
-        // If it's a labeled product, analyze the OCR text for ingredients
         await analyzeOCRText(ocrText, imageFile);
       } else {
-        // If it's a prepared dish, analyze the image visually
         await analyzeWithImage(imageFile);
       }
     } catch (e) {
@@ -193,11 +191,9 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     }
   }
 
-  // Function to determine if the OCR text indicates a labeled product
   bool _isLabeledProduct(String ocrText) {
     final lowerText = ocrText.toLowerCase();
 
-    // Keywords that indicate a food label/packaged product
     final labelKeywords = [
       'ingredients:',
       'ingredients',
@@ -232,23 +228,19 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
       'sku',
     ];
 
-    // Check if any label keywords are present
     bool hasLabelKeywords = labelKeywords.any(
       (keyword) => lowerText.contains(keyword),
     );
 
-    // Check for ingredient list patterns (comma-separated items)
     bool hasIngredientPattern =
         lowerText.contains(',') &&
-        (lowerText.split(',').length >= 3); // At least 3 comma-separated items
+        (lowerText.split(',').length >= 3);
 
-    // Check for percentage patterns common in ingredient lists
     bool hasPercentages = RegExp(r'\d+%').hasMatch(lowerText);
 
     return hasLabelKeywords || hasIngredientPattern || hasPercentages;
   }
 
-  // Separate prompt for OCR text analysis (for labeled products)
 
   String get _ocrAnalysisPrompt => '''
 You are an expert food product analyzer with access to comprehensive knowledge of Filipino and international packaged food products. Your goal is to accurately identify products and extract ingredients from food labels using OCR text.
@@ -484,7 +476,6 @@ CRITICAL ACCURACY REQUIREMENTS:
         apiKey: apiKey,
       );
 
-      // Enhanced prompt with better OCR processing instructions
       final prompt = '''$_ocrAnalysisPrompt
 
 EXTRACTED TEXT FROM FOOD LABEL:
@@ -546,9 +537,9 @@ Focus on providing the most accurate product identification possible using your 
           RegExp(r'\b0(?=[a-zA-Z])'),
           'O',
         ) // 0 before letters likely O
-        .replaceAll(RegExp(r'\bl(?=[0-9])'), '1') // l before numbers likely 1
-        .replaceAll(RegExp(r'\bS(?=[0-9])'), '5') // S before numbers likely 5
-        .replaceAll(RegExp(r'\bB(?=[0-9])'), '8'); // B before numbers likely 8
+        .replaceAll(RegExp(r'\bl(?=[0-9])'), '1')
+        .replaceAll(RegExp(r'\bS(?=[0-9])'), '5') 
+        .replaceAll(RegExp(r'\bB(?=[0-9])'), '8'); 
 
     return cleaned;
   }
