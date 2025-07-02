@@ -19,10 +19,10 @@ class AllergenTab extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _AllergenTabState createState() => _AllergenTabState();
+  AllergenTabState createState() => AllergenTabState();
 }
 
-class _AllergenTabState extends State<AllergenTab> {
+class AllergenTabState extends State<AllergenTab> {
   List<AlternativeProduct> alternativeProducts = [];
   bool isLoadingAlternatives = false;
 
@@ -32,11 +32,11 @@ class _AllergenTabState extends State<AllergenTab> {
     if (widget.isOCRAnalysis &&
         widget.currentAllergens.isNotEmpty &&
         widget.productName != null) {
-      _loadAlternativeProducts();
+      loadAlternativeProducts();
     }
   }
 
-  Future<void> _loadAlternativeProducts() async {
+  Future<void> loadAlternativeProducts() async {
     if (widget.productName == null || widget.productName!.isEmpty) return;
 
     setState(() {
@@ -44,7 +44,7 @@ class _AllergenTabState extends State<AllergenTab> {
     });
 
     try {
-      final alternatives = await _fetchAlternativeProducts(
+      final alternatives = await fetchAlternativeProducts(
         widget.productName!,
         widget.currentAllergens,
       );
@@ -61,18 +61,14 @@ class _AllergenTabState extends State<AllergenTab> {
     }
   }
 
-  Future<List<AlternativeProduct>> _fetchAlternativeProducts(
+  Future<List<AlternativeProduct>> fetchAlternativeProducts(
     String productName,
     List<AllergenInfo> allergens,
   ) async {
     try {
-      // Extract category from product name (simple approach)
-      String searchTerm = _extractCategory(productName);
+      String searchTerm = extractCategory(productName);
+      List<String> allergenCodes = getAllergenCodes(allergens);
 
-      // Get allergen codes that we need to avoid
-      List<String> allergenCodes = _getAllergenCodes(allergens);
-
-      // Search Open Food Facts
       final url =
           'https://world.openfoodfacts.org/cgi/search.pl?'
           'search_terms=$searchTerm&'
@@ -90,25 +86,21 @@ class _AllergenTabState extends State<AllergenTab> {
         List<AlternativeProduct> alternatives = [];
 
         for (var product in products) {
-          // Skip if same product
           if (product['product_name']?.toString().toLowerCase() ==
               productName.toLowerCase())
             continue;
 
-          // Check if product is safe (doesn't contain our allergens)
-          if (_isProductSafe(product, allergenCodes)) {
+          if (isProductSafe(product, allergenCodes)) {
             alternatives.add(
               AlternativeProduct(
                 name: product['product_name'] ?? 'Unknown Product',
                 brand: product['brands'] ?? '',
                 imageUrl: product['image_url'] ?? '',
-                allergens: _extractProductAllergens(product),
-                nutritionGrade: product['nutriscore_grade'] ?? '',
+                allergens: extractProductAllergens(product),
               ),
             );
           }
 
-          // Limit to 3 alternatives
           if (alternatives.length >= 3) break;
         }
 
@@ -121,10 +113,9 @@ class _AllergenTabState extends State<AllergenTab> {
     return [];
   }
 
-  String _extractCategory(String productName) {
+  String extractCategory(String productName) {
     String name = productName.toLowerCase();
 
-    // Noodle and instant noodle products
     if (name.contains('pancit') ||
         name.contains('canton') ||
         name.contains('noodle') ||
@@ -139,14 +130,12 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'noodles instant noodles';
     }
 
-    // Dairy products
     if (name.contains('milk') ||
         name.contains('dairy') ||
         name.contains('gatas')) {
       return 'milk dairy';
     }
 
-    // Bread and baked goods
     if (name.contains('bread') ||
         name.contains('tinapay') ||
         name.contains('pandesal') ||
@@ -155,7 +144,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'bread baked goods';
     }
 
-    // Cookies and biscuits
     if (name.contains('cookie') ||
         name.contains('biscuit') ||
         name.contains('galletas') ||
@@ -163,7 +151,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'cookies biscuits';
     }
 
-    // Chocolate products
     if (name.contains('chocolate') ||
         name.contains('choco') ||
         name.contains('cocoa') ||
@@ -171,21 +158,18 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'chocolate';
     }
 
-    // Cheese products
     if (name.contains('cheese') ||
         name.contains('keso') ||
         name.contains('queso')) {
       return 'cheese';
     }
 
-    // Yogurt products
     if (name.contains('yogurt') ||
         name.contains('yoghurt') ||
         name.contains('greek yogurt')) {
       return 'yogurt';
     }
 
-    // Cereal products
     if (name.contains('cereal') ||
         name.contains('cornflakes') ||
         name.contains('oats') ||
@@ -194,7 +178,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'cereal breakfast';
     }
 
-    // Snack products
     if (name.contains('chips') ||
         name.contains('snack') ||
         name.contains('crackers') ||
@@ -203,7 +186,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'snacks chips';
     }
 
-    // Rice products
     if (name.contains('rice') ||
         name.contains('bigas') ||
         name.contains('kanin') ||
@@ -211,7 +193,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'rice';
     }
 
-    // Canned goods
     if (name.contains('canned') ||
         name.contains('sardines') ||
         name.contains('corned beef') ||
@@ -219,7 +200,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'canned goods';
     }
 
-    // Sauce and condiments
     if (name.contains('sauce') ||
         name.contains('ketchup') ||
         name.contains('soy sauce') ||
@@ -228,7 +208,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'sauce condiments';
     }
 
-    // Beverages
     if (name.contains('juice') ||
         name.contains('drink') ||
         name.contains('soda') ||
@@ -238,7 +217,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'beverages drinks';
     }
 
-    // Meat products
     if (name.contains('meat') ||
         name.contains('beef') ||
         name.contains('pork') ||
@@ -247,7 +225,6 @@ class _AllergenTabState extends State<AllergenTab> {
       return 'meat products';
     }
 
-    // Seafood
     if (name.contains('fish') ||
         name.contains('tuna') ||
         name.contains('salmon') ||
@@ -298,7 +275,7 @@ class _AllergenTabState extends State<AllergenTab> {
         .trim();
   }
 
-  List<String> _getAllergenCodes(List<AllergenInfo> allergens) {
+  List<String> getAllergenCodes(List<AllergenInfo> allergens) {
     Map<String, String> allergenMap = {
       'milk': 'milk',
       'dairy': 'milk',
@@ -327,11 +304,10 @@ class _AllergenTabState extends State<AllergenTab> {
     return codes;
   }
 
-  bool _isProductSafe(
+  bool isProductSafe(
     Map<String, dynamic> product,
     List<String> avoidAllergens,
   ) {
-    // Check allergens field
     String allergens = product['allergens'] ?? '';
     String allergensLower = allergens.toLowerCase();
 
@@ -341,7 +317,6 @@ class _AllergenTabState extends State<AllergenTab> {
       }
     }
 
-    // Check ingredients for common allergen terms
     String ingredients = product['ingredients_text'] ?? '';
     String ingredientsLower = ingredients.toLowerCase();
 
@@ -375,7 +350,7 @@ class _AllergenTabState extends State<AllergenTab> {
     return true;
   }
 
-  List<String> _extractProductAllergens(Map<String, dynamic> product) {
+  List<String> extractProductAllergens(Map<String, dynamic> product) {
     String allergens = product['allergens'] ?? '';
     if (allergens.isEmpty) return [];
 
@@ -415,7 +390,6 @@ class _AllergenTabState extends State<AllergenTab> {
           ),
           SizedBox(height: 16),
 
-          // Allergens Display
           if (widget.currentAllergens.isNotEmpty)
             Wrap(
               spacing: 8,
@@ -522,7 +496,7 @@ class _AllergenTabState extends State<AllergenTab> {
             SizedBox(height: 16),
 
             if (widget.currentAllergens.isNotEmpty)
-              _buildAlternativesSection()
+              buildAlternativesSection()
             else
               Container(
                 width: double.infinity,
@@ -557,7 +531,7 @@ class _AllergenTabState extends State<AllergenTab> {
     );
   }
 
-  Widget _buildAlternativesSection() {
+  Widget buildAlternativesSection() {
     if (alternativeProducts.isNotEmpty) {
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -588,10 +562,10 @@ class _AllergenTabState extends State<AllergenTab> {
                                     fit: BoxFit.cover,
                                     width: double.infinity,
                                     errorBuilder: (context, error, stackTrace) {
-                                      return _buildPlaceholderImage();
+                                      return buildPlaceholderImage();
                                     },
                                   )
-                                  : _buildPlaceholderImage(),
+                                  : buildPlaceholderImage(),
                         ),
                       ),
                       SizedBox(height: 8),
@@ -614,35 +588,13 @@ class _AllergenTabState extends State<AllergenTab> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                      if (product.nutritionGrade.isNotEmpty)
-                        Container(
-                          margin: EdgeInsets.only(top: 4),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _getNutritionGradeColor(
-                              product.nutritionGrade,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Grade ${product.nutritionGrade.toUpperCase()}',
-                            style: TextStyle(
-                              fontSize: 8,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 );
               }).toList(),
         ),
       );
-    } else {
+    } else if (isLoadingAlternatives) {
       return Row(
         children: List.generate(3, (index) {
           return Expanded(
@@ -672,10 +624,78 @@ class _AllergenTabState extends State<AllergenTab> {
           );
         }),
       );
+    } else {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey[200]!, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.05),
+              blurRadius: 12,
+              spreadRadius: 2,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Added visual element
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.search_off_rounded,
+                size: 32,
+                color: Colors.blue[300],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Improved typography hierarchy
+            Text(
+              'No Alternative Products Found',
+              style: TextStyle(
+                color: Colors.grey[800],
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.1,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 8),
+
+            // Enhanced secondary text
+            Text(
+              'We couldn\'t find safe alternatives matching your criteria',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
     }
   }
 
-  Widget _buildPlaceholderImage() {
+  Widget buildPlaceholderImage() {
     return Container(
       width: double.infinity,
       height: double.infinity,
@@ -697,23 +717,6 @@ class _AllergenTabState extends State<AllergenTab> {
       ),
     );
   }
-
-  Color _getNutritionGradeColor(String grade) {
-    switch (grade.toLowerCase()) {
-      case 'a':
-        return Colors.green;
-      case 'b':
-        return Colors.lightGreen;
-      case 'c':
-        return Colors.orange;
-      case 'd':
-        return Colors.deepOrange;
-      case 'e':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
 }
 
 class AlternativeProduct {
@@ -721,13 +724,11 @@ class AlternativeProduct {
   final String brand;
   final String imageUrl;
   final List<String> allergens;
-  final String nutritionGrade;
 
   AlternativeProduct({
     required this.name,
     required this.brand,
     required this.imageUrl,
     required this.allergens,
-    required this.nutritionGrade,
   });
 }

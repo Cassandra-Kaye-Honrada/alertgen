@@ -38,20 +38,136 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
         errorMessage = null;
       });
 
-      simplifiedIngredient = await getSimplifiedIngredient(widget.ingredient);
-      final usdaAllergens = await getAllergenInfoFromUSDA(simplifiedIngredient);
+      final localAllergens = detectLocalAllergens(widget.ingredient);
 
-      setState(() {
-        allergensFound = usdaAllergens['allergens'] ?? [];
-        riskLevel = usdaAllergens['risk'] ?? 'Unknown';
-        isLoading = false;
-      });
+      if (localAllergens.isNotEmpty) {
+        setState(() {
+          allergensFound = localAllergens;
+          riskLevel = 'Contains allergen';
+          isLoading = false;
+        });
+      } else {
+        simplifiedIngredient = await getSimplifiedIngredient(widget.ingredient);
+        final usdaAllergens = await getAllergenInfoFromUSDA(
+          simplifiedIngredient,
+        );
+
+        setState(() {
+          allergensFound = usdaAllergens['allergens'] ?? [];
+          riskLevel = usdaAllergens['risk'] ?? 'Unknown';
+          isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
         errorMessage = e.toString();
         isLoading = false;
       });
     }
+  }
+
+  List<String> detectLocalAllergens(String ingredient) {
+    String lowerIngredient = ingredient.toLowerCase();
+    List<String> foundAllergens = [];
+
+    Map<String, List<String>> allergenTerms = {
+      'Egg': [
+        'egg',
+        'eggs',
+        'albumin',
+        'ovalbumin',
+        'ovomucin',
+        'ovomucoid',
+        'lysozyme',
+        'lecithin',
+        'mayonnaise',
+        'meringue',
+        'custard',
+      ],
+      'Milk': [
+        'milk',
+        'dairy',
+        'casein',
+        'whey',
+        'lactose',
+        'lactalbumin',
+        'lactoglobulin',
+        'cheese',
+        'butter',
+        'cream',
+        'yogurt',
+      ],
+      'Wheat': [
+        'wheat',
+        'gluten',
+        'gliadin',
+        'glutenin',
+        'flour',
+        'bread',
+        'pasta',
+        'noodle',
+        'wrapper',
+        'triticum',
+      ],
+      'Soy': [
+        'soy',
+        'soya',
+        'lecithin',
+        'tofu',
+        'tempeh',
+        'miso',
+        'glycine max',
+        'soybean',
+        'edamame',
+      ],
+      'Peanut': ['peanut', 'groundnut', 'arachis', 'arachis hypogaea'],
+      'Tree nut': [
+        'almond',
+        'cashew',
+        'walnut',
+        'pecan',
+        'pistachio',
+        'hazelnut',
+        'macadamia',
+        'brazil nut',
+        'pine nut',
+      ],
+      'Fish': [
+        'fish',
+        'anchovy',
+        'sardine',
+        'tuna',
+        'salmon',
+        'cod',
+        'mackerel',
+      ],
+      'Shellfish': [
+        'shellfish',
+        'shrimp',
+        'crab',
+        'lobster',
+        'crayfish',
+        'crustacean',
+        'mollusc',
+        'oyster',
+        'clam',
+        'mussel',
+        'scallop',
+        'chitin',
+      ],
+      'Sesame': ['sesame', 'tahini', 'sesamum'],
+    };
+
+    for (var allergen in allergenTerms.keys) {
+      for (var term in allergenTerms[allergen]!) {
+        if (lowerIngredient.contains(term)) {
+          foundAllergens.add(allergen);
+          break;
+        }
+      }
+    }
+
+    return foundAllergens;
   }
 
   Future<String> getSimplifiedIngredient(String rawIngredient) async {
@@ -115,7 +231,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
     };
   }
 
-  Widget _getAllergenImage(String allergen) {
+  Widget getAllergenImage(String allergen) {
     String? assetName;
     switch (allergen.toLowerCase()) {
       case 'milk':
@@ -156,7 +272,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
     }
   }
 
-  Color _getAllergenColor(String allergen) {
+  Color getAllergenColor(String allergen) {
     switch (allergen.toLowerCase()) {
       case 'milk':
         return Colors.pink.shade100;
@@ -179,7 +295,6 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
 
   @override
   Widget build(BuildContext context) {
-    
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
@@ -188,7 +303,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start, // Left align all content
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             width: 40,
@@ -236,9 +351,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
             )
           else ...[
             Text(
-              simplifiedIngredient.isNotEmpty
-                  ? simplifiedIngredient
-                  : widget.ingredient,
+              widget.ingredient,
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w600,
@@ -246,6 +359,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
               ),
               textAlign: TextAlign.left,
             ),
+
             const SizedBox(height: 16),
             if (allergensFound.isNotEmpty) ...[
               Container(
@@ -254,8 +368,9 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
+                  color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.red.shade200),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -263,14 +378,14 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                     Icon(
                       Icons.warning_amber_rounded,
                       size: 16,
-                      color: AppColors.textGray,
+                      color: Colors.red.shade700,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Contains an allergen',
+                      'Contains allergen(s)',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade700,
+                        color: Colors.red.shade700,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -291,10 +406,10 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                             width: 60,
                             height: 60,
                             decoration: BoxDecoration(
-                              color: _getAllergenColor(allergen),
+                              color: getAllergenColor(allergen),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: _getAllergenImage(allergen),
+                            child: getAllergenImage(allergen),
                           ),
                           const SizedBox(height: 8),
                           Text(
