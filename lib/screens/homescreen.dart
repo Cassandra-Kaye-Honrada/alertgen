@@ -3,7 +3,7 @@ import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
 import 'package:allergen/screens/emergency/emergency_screen.dart';
 import 'package:allergen/screens/scan_screen.dart';
-import 'package:allergen/screens/result_screen.dart'; // Add this import
+import 'package:allergen/screens/result_screen.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:allergen/widgets/emergency_widget.dart';
@@ -19,59 +19,100 @@ import 'profile_screen_items/AllergenProfileScreen.dart';
 
 class Homescreen extends StatefulWidget {
   @override
-  _HomescreenState createState() => _HomescreenState();
+  HomescreenState createState() => HomescreenState();
 }
 
-class _HomescreenState extends State<Homescreen> {
+class HomescreenState extends State<Homescreen> {
   final User? user = FirebaseAuth.instance.currentUser;
   List<Map<String, dynamic>> allergens = [];
-  List<Map<String, dynamic>> recentHistory = [];
   String username = 'User';
   bool isLoading = true;
-  bool isHistoryLoading = true;
-  int _currentIndex = 0;
-  bool _isDisposed = false;
-
-  //
+  int currentIndex = 0;
+  bool isDisposed = false;
   late EmergencyService emergencyService;
-
+  late Stream<List<Map<String, dynamic>>> recentHistoryStream;
+  Map<String, File?> imageCache = {};
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_isDisposed) _safeInitialization();
+      if (!isDisposed) safeInitialization();
     });
-
-    _initializeEmergencyService();
+    initializeEmergencyService();
+    setupHistoryStream();
   }
 
-  Future<void> _initializeEmergencyService() async {
+  Future<void> initializeEmergencyService() async {
     emergencyService = EmergencyService();
     await emergencyService.initialize();
     setState(() => isLoading = false);
   }
 
+  void setupHistoryStream() {
+    if (user == null) {
+      recentHistoryStream = Stream.value([]);
+      return;
+    }
+    recentHistoryStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user!.uid)
+        .collection('history')
+        .orderBy('timestamp', descending: true)
+        .limit(3)
+        .snapshots()
+        .asyncMap((snapshot) async {
+          List<Map<String, dynamic>> historyItems = [];
+          for (var doc in snapshot.docs) {
+            Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+            String? fileName = data['fileName'] as String?;
+            if (fileName == null) {
+              final imagePath = data['imagePath'] as String?;
+              if (imagePath != null) {
+                fileName = imagePath.split('/').last;
+              }
+            }
+            File? imageFile;
+            if (fileName != null) {
+              if (imageCache.containsKey(fileName)) {
+                imageFile = imageCache[fileName];
+              } else {
+                imageFile = await downloadAndCacheImage(fileName);
+                imageCache[fileName] = imageFile;
+              }
+            }
+            historyItems.add({
+              'id': doc.id,
+              'dishName': data['dishName'] ?? 'Unknown Dish',
+              'description': data['description'] ?? '',
+              'ingredients': List<String>.from(data['ingredients'] ?? []),
+              'allergens': data['allergens'] ?? [],
+              'imageUrl': data['imageUrl'] ?? '',
+              'fileName': data['fileName'] ?? '',
+              'imagePath': data['imagePath'] ?? '',
+              'timestamp': data['timestamp'],
+              'scanDate': data['scanDate'] ?? '',
+              'isOCRAnalysis': data['isOCRAnalysis'] ?? false,
+              'cachedImage': imageFile,
+            });
+          }
+          return historyItems;
+        });
+  }
+
   @override
   void dispose() {
-    _isDisposed = true;
+    isDisposed = true;
     super.dispose();
   }
 
-  Future<void> _safeInitialization() async {
+  Future<void> safeInitialization() async {
     try {
-      await Future.wait([
-        fetchUsername(),
-        fetchAllergenProfile(),
-        fetchRecentHistory(),
-      ]);
+      await Future.wait([fetchUsername(), fetchAllergenProfile()]);
     } catch (e) {
-      print('Initialization error: $e');
-      if (!_isDisposed && mounted) {
+      if (!isDisposed && mounted) {
         setState(() {
           isLoading = false;
-          isHistoryLoading = false;
           allergens = [];
-          recentHistory = [];
           username = 'User';
         });
       }
@@ -80,25 +121,19 @@ class _HomescreenState extends State<Homescreen> {
 
   Future<void> fetchUsername() async {
     if (user == null) return;
-
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .get()
-          .timeout(Duration(seconds: 15));
-
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .get();
       if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>?;
+        final data = doc.data();
         setState(() {
           username = data?['username'] ?? 'User';
         });
-        print('Username: $username');
-      } else {
-        print('User document not found');
       }
     } catch (e) {
-      print('Error fetching username: $e');
       setState(() {
         username = 'User';
       });
@@ -106,16 +141,15 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   Future<void> fetchAllergenProfile() async {
-    if (user == null || _isDisposed) return;
+    if (user == null || isDisposed) return;
     try {
-      QuerySnapshot snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .collection('profile')
-          .where('type', isEqualTo: 'allergen')
-          .get()
-          .timeout(Duration(seconds: 15));
-
+      QuerySnapshot snapshot =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .collection('profile')
+              .where('type', isEqualTo: 'allergen')
+              .get();
       List<Map<String, dynamic>> fetchedAllergens = [];
       for (var doc in snapshot.docs) {
         if (doc.data() != null) {
@@ -129,16 +163,14 @@ class _HomescreenState extends State<Homescreen> {
           });
         }
       }
-
-      if (!_isDisposed && mounted) {
+      if (!isDisposed && mounted) {
         setState(() {
           allergens = fetchedAllergens;
           isLoading = false;
         });
       }
     } catch (e) {
-      print('Error fetching allergen profile: $e');
-      if (!_isDisposed && mounted) {
+      if (!isDisposed && mounted) {
         setState(() {
           allergens = [];
           isLoading = false;
@@ -147,69 +179,20 @@ class _HomescreenState extends State<Homescreen> {
     }
   }
 
-  Future<void> fetchRecentHistory() async {
-    if (user == null || _isDisposed) return;
-    try {
-      QuerySnapshot snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .collection('history')
-          .orderBy('timestamp', descending: true)
-          .limit(3)
-          .get()
-          .timeout(Duration(seconds: 15));
-
-      List<Map<String, dynamic>> fetchedHistory = [];
-      for (var doc in snapshot.docs) {
-        if (doc.data() != null) {
-          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-          fetchedHistory.add({
-            'id': doc.id,
-            'dishName': data['dishName'] ?? 'Unknown Dish',
-            'description': data['description'] ?? '',
-            'ingredients': List<String>.from(data['ingredients'] ?? []),
-            'allergens': data['allergens'] ?? [],
-            'imageUrl': data['imageUrl'] ?? '',
-            'fileName': data['fileName'] ?? '',
-            'imagePath': data['imagePath'] ?? '',
-            'timestamp': data['timestamp'],
-            'scanDate': data['scanDate'] ?? '',
-          });
-        }
-      }
-
-      if (!_isDisposed && mounted) {
-        setState(() {
-          recentHistory = fetchedHistory;
-          isHistoryLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error fetching recent history: $e');
-      if (!_isDisposed && mounted) {
-        setState(() {
-          recentHistory = [];
-          isHistoryLoading = false;
-        });
-      }
-    }
-  }
-
-  Color _getSeverityColor(double severity) {
+  Color getSeverityColor(double severity) {
     if (severity < 0.33) return AppColors.mild;
     if (severity < 0.67) return AppColors.moderate;
     return AppColors.dangerAlert;
   }
 
-  String _getSeverityText(double severity) {
+  String getSeverityText(double severity) {
     if (severity < 0.33) return 'Mild';
     if (severity < 0.67) return 'Moderate';
     return 'Severe';
   }
 
-  String _getTimeAgo(dynamic timestamp) {
+  String getTimeAgo(dynamic timestamp) {
     if (timestamp == null) return 'Unknown time';
-
     DateTime dateTime;
     if (timestamp is Timestamp) {
       dateTime = timestamp.toDate();
@@ -222,10 +205,8 @@ class _HomescreenState extends State<Homescreen> {
     } else {
       return 'Unknown time';
     }
-
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-
     if (difference.inDays > 0) {
       return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
     } else if (difference.inHours > 0) {
@@ -237,35 +218,28 @@ class _HomescreenState extends State<Homescreen> {
     }
   }
 
-  Future<File?> _getCachedImage(String fileName) async {
+  Future<File?> getCachedImage(String fileName) async {
     try {
-      // Get the cache directory
       final Directory tempDir = await getTemporaryDirectory();
       final String filePath = '${tempDir.path}/$fileName';
       final File file = File(filePath);
-
-      // Check if file already exists in cache
       if (await file.exists()) {
         return file;
       }
-
-      // If not in cache, download it
-      return await _downloadAndCacheImage(fileName);
+      return await downloadAndCacheImage(fileName);
     } catch (e) {
-      print('Error getting cached image: $e');
       return null;
     }
   }
 
-  void _navigateToResultScreen(Map<String, dynamic> historyItem) async {
+  void navigateToResultScreen(Map<String, dynamic> historyItem) async {
     try {
       final dishName = historyItem['dishName'] ?? 'Unknown Dish';
       final description =
           historyItem['description'] ?? 'No description available';
       final ingredients = List<String>.from(historyItem['ingredients'] ?? []);
-      final allergenData = historyItem['allergens'] as List<dynamic>? ?? [];
-
-      // Handle both fileName and imagePath (extract filename from path)
+      final allergenData = historyItem['allergens'] as List<dynamic> ?? [];
+      final bool isOCRAnalysis = historyItem['isOCRAnalysis'] as bool ?? false;
       String? fileName = historyItem['fileName'] as String?;
       if (fileName == null) {
         final imagePath = historyItem['imagePath'] as String?;
@@ -273,7 +247,6 @@ class _HomescreenState extends State<Homescreen> {
           fileName = imagePath.split('/').last;
         }
       }
-
       final List<AllergenInfo> allergens =
           allergenData.map((allergen) {
             final allergenMap = allergen as Map<String, dynamic>;
@@ -283,121 +256,75 @@ class _HomescreenState extends State<Homescreen> {
               symptoms: List<String>.from(allergenMap['symptoms'] ?? []),
             );
           }).toList();
-
-      if (fileName == null) {
-        print('No fileName or imagePath found in history item');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image filename not found in database'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        return;
-      }
-
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (context) => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
-              ),
-            ),
-      );
-
-      final File? imageFile = await _downloadAndCacheImage(fileName);
-      Navigator.of(context).pop(); // Close loading dialog
-
+      if (fileName == null) return;
+      File? imageFile = historyItem['cachedImage'];
       if (imageFile == null) {
-        print('Failed to download image: $fileName');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load image: $fileName'),
-            duration: const Duration(seconds: 3),
-          ),
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (context) => Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+                ),
+              ),
         );
-        return;
+        imageFile = await downloadAndCacheImage(fileName);
+        Navigator.of(context).pop();
       }
-
-      // Navigate to ResultScreen
+      if (imageFile == null) return;
       Navigator.push(
         context,
         MaterialPageRoute(
           builder:
               (context) => ResultScreen(
-                image: imageFile,
+                image: imageFile!,
                 dishName: dishName,
                 description: description,
                 ingredients: ingredients,
                 allergens: allergens,
-                onIngredientsChanged: (updatedIngredients) async {
-                  print('Ingredients updated: $updatedIngredients');
-                  // You can add additional logic here if needed
-                },
+                isOCRAnalysis: isOCRAnalysis,
+                onIngredientsChanged: (updatedIngredients) {},
               ),
         ),
       );
     } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog if open
-      print('Error navigating to result: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error opening scan result: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      Navigator.of(context).pop();
     }
   }
 
-  // Add this method to download and cache images
-  Future<File?> _downloadAndCacheImage(String fileName) async {
+  Future<File?> downloadAndCacheImage(String fileName) async {
     try {
-      // Get the cache directory
       final Directory tempDir = await getTemporaryDirectory();
       final String filePath = '${tempDir.path}/$fileName';
       final File file = File(filePath);
-
-      // Check if file already exists in cache
       if (await file.exists()) {
-        print('Image found in cache: $fileName');
         return file;
       }
-
-      // Download from Firebase Storage
       final Reference storageRef = FirebaseStorage.instance
           .ref()
           .child('scan_images')
           .child(fileName);
-
       final String downloadURL = await storageRef.getDownloadURL();
-
-      // Download the image
       final http.Response response = await http.get(Uri.parse(downloadURL));
-
       if (response.statusCode == 200) {
         await file.writeAsBytes(response.bodyBytes);
-        print('Image downloaded and cached: $fileName');
         return file;
       } else {
-        print('Failed to download image. Status code: ${response.statusCode}');
         return null;
       }
     } catch (e) {
-      print('Error downloading image: $e');
       return null;
     }
   }
 
   Future<void> refreshUserData() async {
-    if (!_isDisposed && mounted) {
+    if (!isDisposed && mounted) {
       setState(() {
         isLoading = true;
-        isHistoryLoading = true;
       });
-      await _safeInitialization();
+      imageCache.clear();
+      await safeInitialization();
     }
   }
 
@@ -422,28 +349,28 @@ class _HomescreenState extends State<Homescreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildHeader(),
+                      buildHeader(),
                       SizedBox(height: 30),
-                      _buildEmergencySection(),
+                      buildEmergencySection(),
                       SizedBox(height: 30),
-                      _buildAllergenProfileSection(),
+                      buildAllergenProfileSection(),
                       SizedBox(height: 20),
-                      _buildTreatmentSection(),
+                      buildTreatmentSection(),
                       SizedBox(height: 30),
-                      _buildRecentHistorySection(),
+                      buildRecentHistorySection(),
                     ],
                   ),
                 ),
               ),
             ),
           ),
-          _buildBottomNavigation(),
+          buildBottomNavigation(),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -459,7 +386,7 @@ class _HomescreenState extends State<Homescreen> {
           onTap:
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => ScanHistoryScreen()),
+                MaterialPageRoute(builder: (context) => ScanHistoryScreen()),
               ),
           child: Container(
             padding: EdgeInsets.all(8),
@@ -471,11 +398,10 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildEmergencySection() {
+  Widget buildEmergencySection() {
     return GestureDetector(
       onLongPress: () {
         emergencyService.startEmergencyCallFromUI(context);
-      
       },
       child: Container(
         padding: EdgeInsets.all(20),
@@ -522,7 +448,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildAllergenProfileSection() {
+  Widget buildAllergenProfileSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -543,7 +469,7 @@ class _HomescreenState extends State<Homescreen> {
                     () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => AllergenProfileScreen(),
+                        builder: (context) => AllergenProfileScreen(),
                       ),
                     ),
                 child: Text(
@@ -561,13 +487,13 @@ class _HomescreenState extends State<Homescreen> {
               ),
             )
             : allergens.isEmpty
-            ? _buildEmptyAllergenState()
-            : _buildAllergenGrid(),
+            ? buildEmptyAllergenState()
+            : buildAllergenGrid(),
       ],
     );
   }
 
-  Widget _buildAllergenGrid() {
+  Widget buildAllergenGrid() {
     return SizedBox(
       height: 80,
       child: ListView.builder(
@@ -575,15 +501,15 @@ class _HomescreenState extends State<Homescreen> {
         itemCount: allergens.length + 1,
         itemBuilder: (context, index) {
           if (index == allergens.length) {
-            return _buildAddAllergenIcon();
+            return buildAddAllergenIcon();
           }
-          return _buildAllergenIcon(allergens[index]);
+          return buildAllergenIcon(allergens[index]);
         },
       ),
     );
   }
 
-  Widget _buildAllergenIcon(Map<String, dynamic> allergenData) {
+  Widget buildAllergenIcon(Map<String, dynamic> allergenData) {
     return Container(
       margin: EdgeInsets.only(right: 16),
       child: IntrinsicHeight(
@@ -601,7 +527,7 @@ class _HomescreenState extends State<Homescreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Color(0xFFE0F2FE)),
                   ),
-                  child: _getAllergenIcon(allergenData['name']),
+                  child: getAllergenIcon(allergenData['name']),
                 ),
                 Positioned(
                   top: 2,
@@ -610,7 +536,7 @@ class _HomescreenState extends State<Homescreen> {
                     width: 12,
                     height: 12,
                     decoration: BoxDecoration(
-                      color: _getSeverityColor(allergenData['severity']),
+                      color: getSeverityColor(allergenData['severity']),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white),
                     ),
@@ -641,7 +567,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildAddAllergenIcon() {
+  Widget buildAddAllergenIcon() {
     return Container(
       margin: EdgeInsets.only(right: 16),
       child: Column(
@@ -650,7 +576,9 @@ class _HomescreenState extends State<Homescreen> {
             onTap:
                 () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => AllergenProfileScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => AllergenProfileScreen(),
+                  ),
                 ),
             child: Container(
               width: 50,
@@ -678,7 +606,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildEmptyAllergenState() {
+  Widget buildEmptyAllergenState() {
     return Container(
       padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -711,7 +639,7 @@ class _HomescreenState extends State<Homescreen> {
                   context,
                   MaterialPageRoute(
                     builder:
-                        (_) =>
+                        (context) =>
                             UserProfile(emergencyService: EmergencyService()),
                   ),
                 ),
@@ -728,7 +656,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildTreatmentSection() {
+  Widget buildTreatmentSection() {
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -761,7 +689,7 @@ class _HomescreenState extends State<Homescreen> {
             onTap:
                 () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => FirstAidScreen()),
+                  MaterialPageRoute(builder: (context) => FirstAidScreen()),
                 ),
             child: Container(
               padding: EdgeInsets.all(8),
@@ -777,7 +705,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildRecentHistorySection() {
+  Widget buildRecentHistorySection() {
     return Column(
       children: [
         Row(
@@ -795,7 +723,9 @@ class _HomescreenState extends State<Homescreen> {
               onTap:
                   () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => ScanHistoryScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => ScanHistoryScreen(),
+                    ),
                   ),
               child: Text(
                 'View all',
@@ -805,30 +735,41 @@ class _HomescreenState extends State<Homescreen> {
           ],
         ),
         SizedBox(height: 16),
-        isHistoryLoading
-            ? Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-              ),
-            )
-            : recentHistory.isEmpty
-            ? _buildEmptyHistoryState()
-            : Column(
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: recentHistoryStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return Text('Error loading history');
+            }
+            final recentHistory = snapshot.data ?? [];
+            if (recentHistory.isEmpty) {
+              return buildEmptyHistoryState();
+            }
+            return Column(
               children:
                   recentHistory
                       .map(
                         (item) => Padding(
                           padding: EdgeInsets.only(bottom: 12),
-                          child: _buildHistoryItem(item),
+                          child: buildHistoryItem(item),
                         ),
                       )
                       .toList(),
-            ),
+            );
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildEmptyHistoryState() {
+  Widget buildEmptyHistoryState() {
     return Container(
       padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -859,21 +800,12 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildHistoryItem(Map<String, dynamic> item) {
+  Widget buildHistoryItem(Map<String, dynamic> item) {
     List<dynamic> allergensList = item['allergens'] ?? [];
     bool hasAllergens = allergensList.isNotEmpty;
-
-    // Extract filename for image loading
-    String? fileName = item['fileName'] as String?;
-    if (fileName == null) {
-      final imagePath = item['imagePath'] as String?;
-      if (imagePath != null) {
-        fileName = imagePath.split('/').last;
-      }
-    }
-
+    File? cachedImage = item['cachedImage'];
     return GestureDetector(
-      onTap: () => _navigateToResultScreen(item),
+      onTap: () => navigateToResultScreen(item),
       child: Container(
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -883,7 +815,6 @@ class _HomescreenState extends State<Homescreen> {
         ),
         child: Row(
           children: [
-            // Image container with fallback
             Container(
               width: 50,
               height: 50,
@@ -895,46 +826,12 @@ class _HomescreenState extends State<Homescreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child:
-                    fileName != null
-                        ? FutureBuilder<File?>(
-                          future: _getCachedImage(fileName),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return Center(
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.primary,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            } else if (snapshot.hasData &&
-                                snapshot.data != null) {
-                              return Image.file(
-                                snapshot.data!,
-                                width: 50,
-                                height: 50,
-                                fit: BoxFit.cover,
-                              );
-                            } else {
-                              // Fallback to icon if image fails to load
-                              return Icon(
-                                hasAllergens
-                                    ? Icons.warning
-                                    : Icons.check_circle,
-                                color:
-                                    hasAllergens
-                                        ? AppColors.dangerAlert
-                                        : Colors.green,
-                                size: 20,
-                              );
-                            }
-                          },
+                    cachedImage != null
+                        ? Image.file(
+                          cachedImage,
+                          width: 50,
+                          height: 50,
+                          fit: BoxFit.cover,
                         )
                         : Icon(
                           hasAllergens ? Icons.warning : Icons.check_circle,
@@ -1007,7 +904,7 @@ class _HomescreenState extends State<Homescreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  _getTimeAgo(item['timestamp']),
+                  getTimeAgo(item['timestamp']),
                   style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
                 ),
               ],
@@ -1018,7 +915,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _buildBottomNavigation() {
+  Widget buildBottomNavigation() {
     return Positioned(
       bottom: 20,
       left: 20,
@@ -1041,13 +938,13 @@ class _HomescreenState extends State<Homescreen> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             GestureDetector(
-              onTap: () => setState(() => _currentIndex = 0),
+              onTap: () => setState(() => currentIndex = 0),
               child: Image.asset(
                 'assets/navigation/menu_active.png',
                 width: 24,
                 height: 24,
                 errorBuilder:
-                    (_, __, ___) =>
+                    (context, error, stackTrace) =>
                         Icon(Icons.home, color: Color(0xFF64748B), size: 24),
               ),
             ),
@@ -1055,14 +952,16 @@ class _HomescreenState extends State<Homescreen> {
               onTap:
                   () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => CameraScannerScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => CameraScannerScreen(),
+                    ),
                   ),
               child: Image.asset(
                 'assets/navigation/scan_inactive.png',
                 width: 24,
                 height: 24,
                 errorBuilder:
-                    (_, __, ___) => Icon(
+                    (context, error, stackTrace) => Icon(
                       Icons.camera_alt,
                       color: Color(0xFF64748B),
                       size: 24,
@@ -1071,12 +970,12 @@ class _HomescreenState extends State<Homescreen> {
             ),
             GestureDetector(
               onTap: () {
-                setState(() => _currentIndex = 2);
+                setState(() => currentIndex = 2);
                 Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder:
-                        (_) =>
+                        (context) =>
                             UserProfile(emergencyService: EmergencyService()),
                   ),
                 );
@@ -1086,7 +985,7 @@ class _HomescreenState extends State<Homescreen> {
                 width: 24,
                 height: 24,
                 errorBuilder:
-                    (_, __, ___) =>
+                    (context, error, stackTrace) =>
                         Icon(Icons.person, color: Color(0xFF00BCD4), size: 24),
               ),
             ),
@@ -1096,7 +995,7 @@ class _HomescreenState extends State<Homescreen> {
     );
   }
 
-  Widget _getAllergenIcon(String allergenName) {
+  Widget getAllergenIcon(String allergenName) {
     final String name = allergenName.toLowerCase().trim();
     switch (name) {
       case 'milk':

@@ -485,6 +485,9 @@ class ScanHistoryScreen extends StatelessWidget {
       final description = data['description'] ?? 'No description available';
       final ingredients = List<String>.from(data['ingredients'] ?? []);
       final allergenData = data['allergens'] as List<dynamic>? ?? [];
+      
+      // Get OCR analysis flag - default to false if not present
+      final isOCRAnalysis = data['isOCRAnalysis'] as bool? ?? false;
 
       String? fileName = data['fileName'] as String?;
       if (fileName == null) {
@@ -551,6 +554,7 @@ class ScanHistoryScreen extends StatelessWidget {
                 description: description,
                 ingredients: ingredients,
                 allergens: allergens,
+                isOCRAnalysis: isOCRAnalysis, // Pass OCR flag to ResultScreen
                 onIngredientsChanged: (updatedIngredients) async {
                   print('Ingredients updated: $updatedIngredients');
                 },

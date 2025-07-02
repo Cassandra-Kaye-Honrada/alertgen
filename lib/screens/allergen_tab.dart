@@ -7,13 +7,15 @@ import 'dart:convert';
 class AllergenTab extends StatefulWidget {
   final List<AllergenInfo> currentAllergens;
   final bool isUpdatingAllergens;
-  final String? productName; // Add this parameter to identify the product
+  final String? productName;
+  final bool isOCRAnalysis;
 
   const AllergenTab({
     Key? key,
     required this.currentAllergens,
     required this.isUpdatingAllergens,
     this.productName,
+    required this.isOCRAnalysis,
   }) : super(key: key);
 
   @override
@@ -27,8 +29,9 @@ class _AllergenTabState extends State<AllergenTab> {
   @override
   void initState() {
     super.initState();
-    // Only load alternatives if we have allergens detected and a product name
-    if (widget.currentAllergens.isNotEmpty && widget.productName != null) {
+    if (widget.isOCRAnalysis &&
+        widget.currentAllergens.isNotEmpty &&
+        widget.productName != null) {
       _loadAlternativeProducts();
     }
   }
@@ -495,60 +498,60 @@ class _AllergenTabState extends State<AllergenTab> {
 
           SizedBox(height: 24),
 
-          // Alternative Products Section
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Alternative Products',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              if (isLoadingAlternatives)
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.primary,
-                    ),
-                  ),
+          if (widget.isOCRAnalysis) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Alternative Products',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-            ],
-          ),
-          SizedBox(height: 16),
-
-          // Show alternatives only if allergens are present
-          if (widget.currentAllergens.isNotEmpty)
-            _buildAlternativesSection()
-          else
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.withOpacity(0.3)),
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.info, color: Colors.blue, size: 32),
-                  SizedBox(height: 8),
-                  Text(
-                    'No Alternatives Needed',
-                    style: TextStyle(
-                      color: Colors.blue,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
+                if (isLoadingAlternatives)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.primary,
+                      ),
                     ),
                   ),
-                  Text(
-                    'This product is safe for you!',
-                    style: TextStyle(color: Colors.blue[700], fontSize: 12),
-                  ),
-                ],
-              ),
+              ],
             ),
+            SizedBox(height: 16),
+
+            if (widget.currentAllergens.isNotEmpty)
+              _buildAlternativesSection()
+            else
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.info, color: Colors.blue, size: 32),
+                    SizedBox(height: 8),
+                    Text(
+                      'No Alternatives Needed',
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'This product is safe for you!',
+                      style: TextStyle(color: Colors.blue[700], fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ],
       ),
     );

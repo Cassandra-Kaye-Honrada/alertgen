@@ -13,7 +13,8 @@ class DescriptionTab extends StatelessWidget {
   final Function(int) removeIngredient;
   final VoidCallback saveChanges;
 
-  const DescriptionTab({Key? key, required this.description, required this.currentIngredients, required this.currentAllergens, required this.isEditing, required this.toggleEdit, required this.addIngredient, required this.removeIngredient, required this.saveChanges}) : super(key: key);
+  const DescriptionTab({Key? key, 
+  required this.description, required this.currentIngredients, required this.currentAllergens, required this.isEditing, required this.toggleEdit, required this.addIngredient, required this.removeIngredient, required this.saveChanges}) : super(key: key);
 
   Color _getIngredientColor(String ingredient) {
     for (var allergen in currentAllergens) {

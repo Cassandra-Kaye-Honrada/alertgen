@@ -41,6 +41,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   String description = '';
   List<String> ingredients = [];
   List<AllergenInfo> allergens = [];
+  bool isOCRAnalysis = false;
+  List<String> alternativeProducts = [];
 
   @override
   void initState() {
@@ -178,8 +180,6 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
       final recognizedText = await textRecognizer!.processImage(inputImage);
       final ocrText = recognizedText.text.trim();
 
-      print('OCR Text extracted: $ocrText'); // Debug log
-
       if (ocrText.isNotEmpty && _isLabeledProduct(ocrText)) {
         await analyzeOCRText(ocrText, imageFile);
       } else {
@@ -233,14 +233,12 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     );
 
     bool hasIngredientPattern =
-        lowerText.contains(',') &&
-        (lowerText.split(',').length >= 3);
+        lowerText.contains(',') && (lowerText.split(',').length >= 3);
 
     bool hasPercentages = RegExp(r'\d+%').hasMatch(lowerText);
 
     return hasLabelKeywords || hasIngredientPattern || hasPercentages;
   }
-
 
   String get _ocrAnalysisPrompt => '''
 You are an expert food product analyzer with access to comprehensive knowledge of Filipino and international packaged food products. Your goal is to accurately identify products and extract ingredients from food labels using OCR text.
@@ -471,6 +469,8 @@ CRITICAL ACCURACY REQUIREMENTS:
     }
 
     try {
+      setState(() => isOCRAnalysis = true);
+
       final model = GenerativeModel(
         model: 'gemini-2.5-flash-preview-04-17',
         apiKey: apiKey,
@@ -538,8 +538,8 @@ Focus on providing the most accurate product identification possible using your 
           'O',
         ) // 0 before letters likely O
         .replaceAll(RegExp(r'\bl(?=[0-9])'), '1')
-        .replaceAll(RegExp(r'\bS(?=[0-9])'), '5') 
-        .replaceAll(RegExp(r'\bB(?=[0-9])'), '8'); 
+        .replaceAll(RegExp(r'\bS(?=[0-9])'), '5')
+        .replaceAll(RegExp(r'\bB(?=[0-9])'), '8');
 
     return cleaned;
   }
@@ -551,6 +551,7 @@ Focus on providing the most accurate product identification possible using your 
     }
 
     try {
+      setState(() => isOCRAnalysis = false);
       final model = GenerativeModel(
         model: 'gemini-2.5-flash-preview-04-17',
         apiKey: apiKey,
@@ -639,6 +640,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
               ingredients: ingredients,
               allergens: allergens,
               onIngredientsChanged: updateAllergens,
+              isOCRAnalysis: isOCRAnalysis,
             ),
       ),
     );
@@ -682,6 +684,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
                 .toList(),
         'imageUrl': imageUrl,
         'fileName': fileName,
+        'isOCRAnalysis': isOCRAnalysis,
         'timestamp': FieldValue.serverTimestamp(),
         'scanDate': DateTime.now().toIso8601String(),
         'userId': user.uid,

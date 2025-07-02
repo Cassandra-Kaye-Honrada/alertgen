@@ -19,6 +19,7 @@ class ResultScreen extends StatefulWidget {
   final List<String> ingredients;
   final List<AllergenInfo> allergens;
   final Function(List<String>) onIngredientsChanged;
+  final bool isOCRAnalysis;
 
   const ResultScreen({
     Key? key,
@@ -28,6 +29,7 @@ class ResultScreen extends StatefulWidget {
     required this.ingredients,
     required this.allergens,
     required this.onIngredientsChanged,
+    required this.isOCRAnalysis,
   }) : super(key: key);
 
   @override
@@ -490,8 +492,8 @@ Only return the JSON object, no additional text.
                 AllergenTab(
                   currentAllergens: currentAllergens,
                   isUpdatingAllergens: isUpdatingAllergens,
-                  productName:
-                      widget.dishName,
+                  productName: widget.dishName,
+                  isOCRAnalysis: widget.isOCRAnalysis,
                 ),
                 DescriptionTab(
                   description: widget.description,
