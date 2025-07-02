@@ -19,8 +19,35 @@ class LoginScreenState extends State<LoginScreen> {
   bool rememberMe = false;
   bool obscurePassword = true;
   bool isLoading = false;
+ bool isCheckingAuth = true;
 
   final auth = FirebaseAuth.instance;
+
+   @override
+  void initState() {
+    super.initState();
+    _checkAuthState(); 
+  }
+
+   Future<void> _checkAuthState() async {
+    await Future.delayed(Duration(milliseconds: 100)); 
+    
+    User? currentUser = auth.currentUser;
+    
+    if (currentUser != null) {
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => OnboardingScreen()),
+        );
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          isCheckingAuth = false;
+        });
+      }
+    }
+  }
 
   Future<void> signIn() async {
     if (formKey.currentState!.validate()) {
@@ -158,8 +185,43 @@ class LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  @override
+   @override
   Widget build(BuildContext context) {
+    if (isCheckingAuth) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                child: Image.asset(
+                  'assets/images/logo.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(
+                color: Color(0xFF00A19C),
+                strokeWidth: 2,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Loading...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                  fontFamily: 'Poppins',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -216,13 +278,12 @@ class LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
-                  validator:
-                      (value) =>
-                          value == null || value.isEmpty
-                              ? 'Please enter email'
-                              : (EmailValidator.validate(value)
-                                  ? null
-                                  : 'Enter a valid email'),
+                  validator: (value) =>
+                      value == null || value.isEmpty
+                          ? 'Please enter email'
+                          : (EmailValidator.validate(value)
+                              ? null
+                              : 'Enter a valid email'),
                   style: const TextStyle(fontFamily: 'Poppins'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
@@ -257,11 +318,10 @@ class LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: passwordController,
                   obscureText: obscurePassword,
-                  validator:
-                      (value) =>
-                          value == null || value.isEmpty
-                              ? 'Please enter password'
-                              : null,
+                  validator: (value) =>
+                      value == null || value.isEmpty
+                          ? 'Please enter password'
+                          : null,
                   style: const TextStyle(fontFamily: 'Poppins'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
@@ -288,10 +348,9 @@ class LoginScreenState extends State<LoginScreen> {
                         color: Colors.grey,
                         size: 20,
                       ),
-                      onPressed:
-                          () => setState(
-                            () => obscurePassword = !obscurePassword,
-                          ),
+                      onPressed: () => setState(
+                        () => obscurePassword = !obscurePassword,
+                      ),
                     ),
                   ),
                 ),
@@ -303,9 +362,8 @@ class LoginScreenState extends State<LoginScreen> {
                       children: [
                         Checkbox(
                           value: rememberMe,
-                          onChanged:
-                              (value) =>
-                                  setState(() => rememberMe = value ?? false),
+                          onChanged: (value) =>
+                              setState(() => rememberMe = value ?? false),
                           activeColor: const Color(0xFF00A19C),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(4),
@@ -353,27 +411,26 @@ class LoginScreenState extends State<LoginScreen> {
                     ),
                     elevation: 0,
                   ),
-                  child:
-                      isLoading
-                          ? CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          )
-                          : const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Sign in now',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'Poppins',
-                                ),
+                  child: isLoading
+                      ? CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Sign in now',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                fontFamily: 'Poppins',
                               ),
-                              SizedBox(width: 8),
-                              Icon(Icons.arrow_forward, size: 18),
-                            ],
-                          ),
+                            ),
+                            SizedBox(width: 8),
+                            Icon(Icons.arrow_forward, size: 18),
+                          ],
+                        ),
                 ),
                 const SizedBox(height: 24),
                 Row(

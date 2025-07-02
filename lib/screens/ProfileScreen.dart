@@ -13,6 +13,7 @@ import 'package:allergen/styleguide.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import 'profile_screen_items/EmergencyContactScreen.dart' hide EmergencyContact;
 import 'profile_screen_items/AllergenProfileScreen.dart';
@@ -55,7 +56,6 @@ class _UserProfileState extends State<UserProfile> {
     super.dispose();
   }
 
-  // Load emergency settings
   void _loadSettings() async {
     try {
       final data = await _storageService.loadSettings();
@@ -340,31 +340,37 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   // Perform logout
-  void _performLogout() async {
+void _performLogout() async {
+  try {
+    await FirebaseAuth.instance.signOut();
+    
     try {
-      await FirebaseAuth.instance.signOut();
-      print('User logged out');
-
-      // Navigate to login screen and clear the navigation stack
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => LoginScreen()),
-          (route) => false,
-        );
-      }
+      await GoogleSignIn().signOut();
     } catch (e) {
-      print('Error during logout: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error logging out: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      print('Google sign out error (can be ignored): $e');
+    }
+    
+    print('User logged out successfully');
+
+   
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/', 
+        (route) => false,
+      );
+    }
+  } catch (e) {
+    print('Error during logout: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error logging out: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
