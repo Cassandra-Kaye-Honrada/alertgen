@@ -1,12 +1,10 @@
 import 'package:allergen/screens/profile_screen_items/scanHistoryScreen.dart';
 import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/first_Aid_screens/FirstAidScreen.dart';
-import 'package:allergen/screens/emergency/emergency_screen.dart';
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:allergen/screens/result_screen.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
 import 'package:allergen/styleguide.dart';
-import 'package:allergen/widgets/emergency_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -61,6 +59,7 @@ class HomescreenState extends State<Homescreen> {
         .limit(3)
         .snapshots()
         .asyncMap((snapshot) async {
+
           List<Map<String, dynamic>> historyItems = [];
           for (var doc in snapshot.docs) {
             Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
@@ -120,7 +119,8 @@ class HomescreenState extends State<Homescreen> {
   }
 
   Future<void> fetchUsername() async {
-    if (user == null) return;
+    if (user == null) 
+    return;
     try {
       final doc =
           await FirebaseFirestore.instance

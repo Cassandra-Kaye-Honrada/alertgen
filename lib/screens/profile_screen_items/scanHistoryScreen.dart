@@ -13,121 +13,7 @@ import 'package:path_provider/path_provider.dart';
 class ScanHistoryScreen extends StatelessWidget {
   const ScanHistoryScreen({Key? key}) : super(key: key);
 
-  @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 640;
-
-    return Scaffold(
-      backgroundColor: AppColors.defaultbackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.primary,
-        elevation: 0,
-        title: const Text(
-          'Scan History',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _getHistoryStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
-              ),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading history',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    snapshot.error.toString(),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No scan history found',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Start scanning to see your history here',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final groupedDocs = _groupDocumentsByDate(snapshot.data!.docs);
-          return SingleChildScrollView(
-            padding: EdgeInsets.symmetric(
-              horizontal: isSmallScreen ? 16 : 23,
-              vertical: 20,
-            ),
-            child: Column(
-              children:
-                  groupedDocs.entries.map((entry) {
-                    return Column(
-                      children: [
-                        _buildHistorySection(
-                          entry.key,
-                          entry.value,
-                          isSmallScreen,
-                          context,
-                        ),
-                        const SizedBox(height: 23),
-                      ],
-                    );
-                  }).toList(),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Stream<QuerySnapshot> _getHistoryStream() {
+  Stream<QuerySnapshot> getHistory() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw Exception('User not authenticated');
@@ -141,84 +27,172 @@ class ScanHistoryScreen extends StatelessWidget {
         .snapshots();
   }
 
-  Map<String, List<DocumentSnapshot>> _groupDocumentsByDate(
+  Map<String, List<DocumentSnapshot>> groupDocumentsByDate(
     List<DocumentSnapshot> docs,
   ) {
     final Map<String, List<DocumentSnapshot>> grouped = {};
-
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
       final timestamp = data['timestamp'] as Timestamp?;
-
       if (timestamp != null) {
         final date = timestamp.toDate();
         final dateString = DateFormat('dd MMM, yyyy').format(date);
-
-        if (!grouped.containsKey(dateString)) {
-          grouped[dateString] = [];
-        }
+        grouped[dateString] = grouped[dateString] ?? [];
         grouped[dateString]!.add(doc);
       }
     }
     return grouped;
   }
 
-  Widget _buildHistorySection(
-    String date,
-    List<DocumentSnapshot> docs,
-    bool isSmallScreen,
-    BuildContext context,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          date,
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontWeight: FontWeight.w400,
-            fontSize: isSmallScreen ? 14 : 16,
-            color: const Color(0xFF1D2939),
-            letterSpacing: -0.45,
-          ),
+  Future<String?> getImageUrl(String fileName) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+      final cleanFileName = fileName.split('/').last;
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('food_images')
+          .child(user.uid)
+          .child(cleanFileName);
+      return await storageRef.getDownloadURL();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<File?> downloadAndCacheImage(String fileName) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+
+      final cleanFileName = fileName.split('/').last;
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('food_images')
+          .child(user.uid)
+          .child(cleanFileName);
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/$cleanFileName';
+      final file = File(tempPath);
+
+      if (await file.exists()) return file;
+
+      final data = await storageRef.getData();
+      if (data != null) {
+        await file.writeAsBytes(data);
+        return file;
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void navigateToResult(BuildContext context, DocumentSnapshot doc) async {
+    try {
+      final data = doc.data() as Map<String, dynamic>;
+      final dishName = data['dishName'] ?? 'Unknown Dish';
+      final description = data['description'] ?? '';
+      final ingredients = List<String>.from(data['ingredients'] ?? []);
+      final allergensData = data['allergens'] as List<dynamic>? ?? [];
+      final isOCRAnalysis = data['isOCRAnalysis'] as bool? ?? false;
+
+      String? fileName = data['fileName'] ?? data['imagePath']?.split('/').last;
+      if (fileName == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Image filename not found')),
+        );
+        return;
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (_) => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+              ),
+            ),
+      );
+
+      final imageFile = await downloadAndCacheImage(fileName);
+      Navigator.of(context).pop();
+
+      if (imageFile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load image: $fileName')),
+        );
+        return;
+      }
+
+      final allergens =
+          allergensData.map((item) {
+            final map = item as Map<String, dynamic>;
+            return AllergenInfo(
+              name: map['name'] ?? 'Unknown',
+              riskLevel: map['riskLevel'] ?? 'mild',
+              symptoms: List<String>.from(map['symptoms'] ?? []),
+            );
+          }).toList();
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (_) => ResultScreen(
+                image: imageFile,
+                dishName: dishName,
+                description: description,
+                ingredients: ingredients,
+                allergens: allergens,
+                isOCRAnalysis: isOCRAnalysis,
+                onIngredientsChanged: (_) {},
+              ),
         ),
-        const SizedBox(height: 8),
-        ...docs.map(
-          (doc) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _buildHistoryCard(doc, isSmallScreen, context),
-          ),
-        ),
-      ],
+      );
+    } catch (e) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error opening result: $e')));
+    }
+  }
+
+  Widget buildStatusIcon(bool isSuccess) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: isSuccess ? AppColors.mild : AppColors.dangerAlert,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        isSuccess ? Icons.check : Icons.warning,
+        color: Colors.white,
+        size: 12,
+      ),
     );
   }
 
-  Widget _buildHistoryCard(
+  Widget buildHistoryCard(
     DocumentSnapshot doc,
     bool isSmallScreen,
     BuildContext context,
   ) {
     final data = doc.data() as Map<String, dynamic>;
-    final cardHeight = isSmallScreen ? 76.0 : 84.0;
-    final imageSize = isSmallScreen ? 48.0 : 53.0;
-
     final dishName = data['dishName'] ?? 'Unknown Dish';
     final timestamp = data['timestamp'] as Timestamp?;
     final allergens = data['allergens'] as List<dynamic>? ?? [];
     final ingredients = data['ingredients'] as List<dynamic>? ?? [];
-
-    // Handle both fileName and imagePath (extract filename from path)
-    String? fileName = data['fileName'] as String?;
-    if (fileName == null) {
-      final imagePath = data['imagePath'] as String?;
-      if (imagePath != null) {
-        fileName = imagePath.split('/').last;
-      }
-    }
-
     final isSuccess = allergens.isEmpty;
 
-    String timeAgo = 'Unknown time';
+    String? fileName = data['fileName'] ?? data['imagePath']?.split('/').last;
+    final imageSize = isSmallScreen ? 48.0 : 53.0;
+
+    String timeAgo = 'Just now';
     if (timestamp != null) {
       final difference = DateTime.now().difference(timestamp.toDate());
       if (difference.inDays > 0) {
@@ -227,15 +201,14 @@ class ScanHistoryScreen extends StatelessWidget {
         timeAgo = '${difference.inHours}h ago';
       } else if (difference.inMinutes > 0) {
         timeAgo = '${difference.inMinutes}m ago';
-      } else {
-        timeAgo = 'Just now';
       }
     }
 
     return GestureDetector(
-      onTap: () => _navigateToResult(context, doc),
+      onTap: () => navigateToResult(context, doc),
       child: Container(
-        height: cardHeight,
+        height: isSmallScreen ? 76 : 84,
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -243,13 +216,10 @@ class ScanHistoryScreen extends StatelessWidget {
         child: Row(
           children: [
             Padding(
-              padding: EdgeInsets.only(
-                left: isSmallScreen ? 15 : 17,
-                top: isSmallScreen ? 14 : 15,
-              ),
+              padding: EdgeInsets.only(left: isSmallScreen ? 15 : 17),
               child: Container(
                 width: imageSize,
-                height: isSmallScreen ? 47 : 52,
+                height: imageSize,
                 decoration: BoxDecoration(
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(9),
@@ -257,7 +227,7 @@ class ScanHistoryScreen extends StatelessWidget {
                 child:
                     fileName != null
                         ? FutureBuilder<String?>(
-                          future: _getImageUrl(fileName),
+                          future: getImageUrl(fileName),
                           builder: (context, snapshot) {
                             if (snapshot.connectionState ==
                                 ConnectionState.waiting) {
@@ -271,48 +241,19 @@ class ScanHistoryScreen extends StatelessWidget {
                                 ),
                               );
                             }
-
                             if (snapshot.hasData && snapshot.data != null) {
                               return ClipRRect(
                                 borderRadius: BorderRadius.circular(9),
                                 child: Image.network(
                                   snapshot.data!,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Icon(
-                                      Icons.image,
-                                      color: Colors.grey[500],
-                                      size: 24,
-                                    );
-                                  },
-                                  loadingBuilder: (
-                                    context,
-                                    child,
-                                    loadingProgress,
-                                  ) {
-                                    if (loadingProgress == null) return child;
-                                    return const Center(
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    );
-                                  },
                                 ),
                               );
                             }
-
-                            return Icon(
-                              Icons.image,
-                              color: Colors.grey[500],
-                              size: 24,
-                            );
+                            return const Icon(Icons.image, size: 24);
                           },
                         )
-                        : Icon(Icons.image, color: Colors.grey[500], size: 24),
+                        : const Icon(Icons.image, size: 24),
               ),
             ),
             Expanded(
@@ -353,7 +294,7 @@ class ScanHistoryScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const SizedBox(height: 8),
-                  _buildStatusIcon(isSuccess),
+                  buildStatusIcon(isSuccess),
                   const Spacer(),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -384,193 +325,101 @@ class ScanHistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusIcon(bool isSuccess) {
-    if (isSuccess) {
-      return Container(
-        width: 20,
-        height: 20,
-        decoration: const BoxDecoration(
-          color: AppColors.mild,
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.check, color: Colors.white, size: 12),
-      );
-    } else {
-      return Container(
-        width: 20,
-        height: 18,
-        decoration: const BoxDecoration(
-          color: AppColors.dangerAlert,
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.warning, color: Colors.white, size: 12),
-      );
-    }
-  }
-
-  Future<String?> _getImageUrl(String fileName) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        print('User not authenticated');
-        return null;
-      }
-
-      // Clean the filename - remove any path separators
-      final cleanFileName = fileName.split('/').last;
-
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('food_images')
-          .child(user.uid)
-          .child(cleanFileName);
-
-      print(
-        'Attempting to get image URL for: food_images/${user.uid}/$cleanFileName',
-      );
-      return await storageRef.getDownloadURL();
-    } catch (e) {
-      print('Error getting image URL for $fileName: $e');
-      return null;
-    }
-  }
-
-  Future<File?> _downloadAndCacheImage(String fileName) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        print('User not authenticated');
-        return null;
-      }
-
-      // Clean the filename - remove any path separators
-      final cleanFileName = fileName.split('/').last;
-
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('food_images')
-          .child(user.uid)
-          .child(cleanFileName);
-
-      final Directory tempDir = await getTemporaryDirectory();
-      final String tempPath = '${tempDir.path}/$cleanFileName';
-      final File tempFile = File(tempPath);
-
-      // Check if file already exists in cache
-      if (await tempFile.exists()) {
-        print('Using cached image: $tempPath');
-        return tempFile;
-      }
-
-      print('Downloading image from: food_images/${user.uid}/$cleanFileName');
-      final Uint8List? data = await storageRef.getData();
-      if (data != null) {
-        await tempFile.writeAsBytes(data);
-        print('Image cached successfully: $tempPath');
-        return tempFile;
-      }
-      print('No data received from Firebase Storage');
-      return null;
-    } catch (e) {
-      print('Error downloading image $fileName: $e');
-      return null;
-    }
-  }
-
-  void _navigateToResult(BuildContext context, DocumentSnapshot doc) async {
-    try {
-      final data = doc.data() as Map<String, dynamic>;
-
-      final dishName = data['dishName'] ?? 'Unknown Dish';
-      final description = data['description'] ?? 'No description available';
-      final ingredients = List<String>.from(data['ingredients'] ?? []);
-      final allergenData = data['allergens'] as List<dynamic>? ?? [];
-      
-      // Get OCR analysis flag - default to false if not present
-      final isOCRAnalysis = data['isOCRAnalysis'] as bool? ?? false;
-
-      String? fileName = data['fileName'] as String?;
-      if (fileName == null) {
-        final imagePath = data['imagePath'] as String?;
-        if (imagePath != null) {
-          fileName = imagePath.split('/').last;
-        }
-      }
-
-      final List<AllergenInfo> allergens =
-          allergenData.map((allergen) {
-            final allergenMap = allergen as Map<String, dynamic>;
-            return AllergenInfo(
-              name: allergenMap['name'] ?? 'Unknown',
-              riskLevel: allergenMap['riskLevel'] ?? 'mild',
-              symptoms: List<String>.from(allergenMap['symptoms'] ?? []),
-            );
-          }).toList();
-
-      if (fileName == null) {
-        print('No fileName or imagePath found in document: ${doc.id}');
-        print('Document data: $data');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image filename not found in database'),
-            duration: Duration(seconds: 3),
+  Widget buildHistorySection(
+    String date,
+    List<DocumentSnapshot> docs,
+    bool isSmallScreen,
+    BuildContext context,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          date,
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontWeight: FontWeight.w400,
+            fontSize: isSmallScreen ? 14 : 16,
+            color: const Color(0xFF1D2939),
+            letterSpacing: -0.45,
           ),
-        );
-        return;
-      }
+        ),
+        const SizedBox(height: 8),
+        ...docs.map((doc) => buildHistoryCard(doc, isSmallScreen, context)),
+      ],
+    );
+  }
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (context) => const Center(
+  @override
+  Widget build(BuildContext context) {
+    final isSmallScreen = MediaQuery.of(context).size.width < 640;
+
+    return Scaffold(
+      backgroundColor: AppColors.defaultbackground,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        title: const Text(
+          'Scan History',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: getHistory(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
               ),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return const Center(child: Text('Error loading history'));
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(child: Text('No scan history found'));
+          }
+
+          final groupedDocs = groupDocumentsByDate(docs);
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 16 : 23,
+              vertical: 20,
             ),
-      );
-
-      final File? imageFile = await _downloadAndCacheImage(fileName);
-      Navigator.of(context).pop();
-
-      if (imageFile == null) {
-        print('Failed to download image: $fileName');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load image: $fileName'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        return;
-      }
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder:
-              (context) => ResultScreen(
-                image: imageFile,
-                dishName: dishName,
-                description: description,
-                ingredients: ingredients,
-                allergens: allergens,
-                isOCRAnalysis: isOCRAnalysis, // Pass OCR flag to ResultScreen
-                onIngredientsChanged: (updatedIngredients) async {
-                  print('Ingredients updated: $updatedIngredients');
-                },
-              ),
-        ),
-      );
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog if open
-      print('Error navigating to result: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error opening scan result: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
+            child: Column(
+              children:
+                  groupedDocs.entries.map((entry) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        buildHistorySection(
+                          entry.key,
+                          entry.value,
+                          isSmallScreen,
+                          context,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    );
+                  }).toList(),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
