@@ -161,6 +161,7 @@ class _ResultScreenState extends State<ResultScreen>
               riskLevel:
                   allergen['severity']?.toString().toLowerCase() ?? 'mild',
               symptoms: List<String>.from(allergen['symptoms'] ?? []),
+              source: allergen['source'] ?? '',
             ),
           );
         }

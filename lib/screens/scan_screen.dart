@@ -1135,11 +1135,13 @@ class AllergenInfo {
   final String name;
   final String riskLevel;
   final List<String> symptoms;
+  final String source;
 
   AllergenInfo({
     required this.name,
     required this.riskLevel,
     required this.symptoms,
+    required this.source,
   });
 
   factory AllergenInfo.fromJson(Map<String, dynamic> json) {
@@ -1147,6 +1149,7 @@ class AllergenInfo {
       name: json['name'] ?? '',
       riskLevel: json['riskLevel'] ?? 'safe',
       symptoms: List<String>.from(json['symptoms'] ?? []),
+      source: json['source'] ?? '',
     );
   }
 

@@ -135,6 +135,7 @@ class ScanHistoryScreen extends StatelessWidget {
               name: map['name'] ?? 'Unknown',
               riskLevel: map['riskLevel'] ?? 'mild',
               symptoms: List<String>.from(map['symptoms'] ?? []),
+              source: map['source'] ?? '',
             );
           }).toList();
 

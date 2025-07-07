@@ -2,8 +2,10 @@ import 'package:allergen/screens/scan_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:allergen/styleguide.dart';
 import 'package:allergen/screens/ingredientmodal.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'dart:convert';
 
-class DescriptionTab extends StatelessWidget {
+class DescriptionTab extends StatefulWidget {
   final String description;
   final List<String> currentIngredients;
   final List<AllergenInfo> currentAllergens;
@@ -25,45 +27,227 @@ class DescriptionTab extends StatelessWidget {
     required this.saveChanges,
   }) : super(key: key);
 
-  Color getIngredientColor(String ingredient) {
-    for (var allergen in currentAllergens) {
-      if (isIngredientAllergenic(ingredient, allergen)) {
-        switch (allergen.riskLevel.toLowerCase()) {
-          case 'severe':
-            return Colors.red;
-          case 'moderate':
-            return Colors.orange;
-          case 'mild':
-            return Colors.green;
-          default:
-            return Colors.grey;
+  @override
+  _DescriptionTabState createState() => _DescriptionTabState();
+}
+
+class _DescriptionTabState extends State<DescriptionTab> {
+  Map<String, AllergenInfo> ingredientAllergenMap = {};
+  bool isAnalyzing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _analyzeIngredientsWithAI();
+  }
+
+  @override
+  void didUpdateWidget(DescriptionTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentIngredients != widget.currentIngredients ||
+        oldWidget.currentAllergens != widget.currentAllergens) {
+      _analyzeIngredientsWithAI();
+    }
+  }
+
+  Future<void> _analyzeIngredientsWithAI() async {
+    if (widget.currentIngredients.isEmpty) return;
+
+    setState(() {
+      isAnalyzing = true;
+    });
+
+    try {
+      const apiKey =
+          'AIzaSyCzyd0ukiEilgPiJ29HNplB2UtWyOKCZkA'; // Use your API key
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash-preview-04-17',
+        apiKey: apiKey,
+      );
+
+      final prompt = '''
+You are an expert food allergen detection AI. Analyze each ingredient and determine if it contains any of the 9 major allergens.
+
+THE 9 MAJOR ALLERGENS:
+1. Milk (dairy, casein, whey, lactose, gatas)
+2. Eggs (albumin, lecithin, ovalbumin, itlog)
+3. Fish (anchovies, bagoong, fish sauce, dried fish, isda)
+4. Shellfish (shrimp, crab, oyster sauce, alamang, hipon)
+5. Tree nuts (cashew, almonds, etc. - NOT peanuts, NOT coconut)
+6. Peanuts (mani, peanut oil, groundnuts)
+7. Wheat (gluten, flour, bread crumbs, harina)
+8. Soy (soy sauce, tofu, soybean oil, toyo)
+9. Sesame (sesame oil, tahini, linga)
+
+TECHNICAL INGREDIENT MAPPING:
+- Albumin, Ovalbumin, Ovomucin → Eggs
+- Casein, Whey, Lactose, Lactalbumin → Milk
+- Lecithin → Usually Soy (can be from eggs)
+- Monosodium glutamate (MSG) → Usually safe (from fermentation)
+- Sodium benzoate, Potassium sorbate → Preservatives (safe)
+- Ascorbic acid → Vitamin C (safe)
+- Tocopherols → Vitamin E (safe)
+- BHT/BHA → Antioxidants (safe)
+- Carrageenan → Seaweed extract (safe)
+- Gluten, Gliadin, Glutenin → Wheat
+- Arachis hypogaea → Peanuts
+- Glycine max → Soy
+- Triticum → Wheat
+
+FILIPINO INGREDIENTS:
+- Bagoong, Patis (fish sauce) → Fish
+- Alamang, Hipon → Shellfish
+- Toyo → Soy
+- Gatas → Milk
+- Itlog → Eggs
+- Mani → Peanuts
+- Harina → Wheat
+- Coconut milk/Gata → SAFE (not tree nuts)
+
+SEVERITY LEVELS:
+- severe: Direct allergen source (e.g., milk powder, egg whites, peanuts)
+- moderate: Processed forms or derivatives (e.g., casein, whey, lecithin)
+- mild: Trace amounts or cross-contamination risk
+- safe: No allergens detected
+
+CURRENT DETECTED ALLERGENS: ${widget.currentAllergens.map((a) => '${a.name} (${a.riskLevel})').join(', ')}
+
+INGREDIENTS TO ANALYZE: ${widget.currentIngredients.join(', ')}
+
+For each ingredient, determine:
+1. If it contains any allergen
+2. Which specific allergen(s)
+3. The severity level
+4. The source/reason for the allergen
+
+Return JSON in this format:
+{
+  "ingredientAnalysis": {
+    "ingredient_name": {
+      "hasAllergen": true/false,
+      "allergen": "allergen_name or null",
+      "severity": "severe|moderate|mild|safe",
+      "source": "explanation of why this ingredient contains the allergen"
+    }
+  }
+}
+
+IMPORTANT:
+- Only detect allergens that are actually present
+- Be conservative and accurate
+- Match the detected allergens with the current allergen list
+- Consider both direct sources and technical/chemical names
+- For Filipino ingredients, use proper allergen mapping
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      String cleanResponse = response.text ?? '';
+
+      if (cleanResponse.contains('```json')) {
+        cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
+      } else if (cleanResponse.contains('```')) {
+        cleanResponse = cleanResponse.split('```')[1];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+      final analysis = jsonData['ingredientAnalysis'] as Map<String, dynamic>;
+
+      Map<String, AllergenInfo> newMap = {};
+
+      for (String ingredient in widget.currentIngredients) {
+        // Find matching analysis (case-insensitive)
+        String? matchingKey;
+        for (String key in analysis.keys) {
+          if (key.toLowerCase() == ingredient.toLowerCase() ||
+              ingredient.toLowerCase().contains(key.toLowerCase()) ||
+              key.toLowerCase().contains(ingredient.toLowerCase())) {
+            matchingKey = key;
+            break;
+          }
         }
+
+        if (matchingKey != null) {
+          final ingredientData = analysis[matchingKey];
+          if (ingredientData['hasAllergen'] == true) {
+            String allergenName = ingredientData['allergen'];
+
+            // Find matching allergen from current allergens
+            AllergenInfo? matchingAllergen = widget.currentAllergens.firstWhere(
+              (a) => a.name.toLowerCase() == allergenName.toLowerCase(),
+              orElse:
+                  () => AllergenInfo(
+                    name: allergenName,
+                    riskLevel: ingredientData['severity'] ?? 'safe',
+                    symptoms: [],
+                    source: ingredientData['source'] ?? ingredient,
+                  ),
+            );
+
+            newMap[ingredient] = matchingAllergen;
+          }
+        }
+      }
+
+      setState(() {
+        ingredientAllergenMap = newMap;
+        isAnalyzing = false;
+      });
+    } catch (e) {
+      print('Error analyzing ingredients with AI: $e');
+      setState(() {
+        isAnalyzing = false;
+      });
+      // Fallback to basic mapping
+      _fallbackAllergenMapping();
+    }
+  }
+
+  void _fallbackAllergenMapping() {
+    Map<String, AllergenInfo> newMap = {};
+
+    for (String ingredient in widget.currentIngredients) {
+      for (AllergenInfo allergen in widget.currentAllergens) {
+        if (_isIngredientAllergenic(ingredient, allergen)) {
+          newMap[ingredient] = allergen;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      ingredientAllergenMap = newMap;
+    });
+  }
+
+  Color getIngredientColor(String ingredient) {
+    if (ingredientAllergenMap.containsKey(ingredient)) {
+      AllergenInfo allergen = ingredientAllergenMap[ingredient]!;
+      switch (allergen.riskLevel.toLowerCase()) {
+        case 'severe':
+          return Colors.red;
+        case 'moderate':
+          return Colors.orange;
+        case 'mild':
+          return Colors.green;
+        default:
+          return Colors.grey;
       }
     }
     return Colors.grey;
   }
 
-  bool isIngredientAllergenic(String ingredient, AllergenInfo allergen) {
+  bool _isIngredientAllergenic(String ingredient, AllergenInfo allergen) {
     String lowerIngredient = ingredient.toLowerCase();
     String lowerAllergenName = allergen.name.toLowerCase();
 
-    if (lowerIngredient.contains(lowerAllergenName)) {
+    // Check allergen source
+    if (allergen.source.isNotEmpty &&
+        lowerIngredient.contains(allergen.source.toLowerCase())) {
       return true;
     }
 
-    Map<String, List<String>> technicalTerms = {
-      'egg': [
-        'albumin',
-        'ovalbumin',
-        'ovomucin',
-        'ovomucoid',
-        'lysozyme',
-        'lecithin',
-        'mayonnaise',
-        'meringue',
-        'custard',
-        'binder',
-      ],
+    // Enhanced technical terms mapping
+    Map<String, List<String>> allergenMapping = {
       'milk': [
         'casein',
         'whey',
@@ -75,18 +259,27 @@ class DescriptionTab extends StatelessWidget {
         'cream',
         'yogurt',
         'dairy',
+        'gatas',
+        'milk powder',
+        'skim milk',
+        'whole milk',
+        'buttermilk',
       ],
-      'dairy': [
-        'casein',
-        'whey',
-        'lactose',
-        'lactalbumin',
-        'lactoglobulin',
-        'milk',
-        'cheese',
-        'butter',
-        'cream',
-        'yogurt',
+      'eggs': [
+        'albumin',
+        'ovalbumin',
+        'ovomucin',
+        'ovomucoid',
+        'lysozyme',
+        'lecithin',
+        'mayonnaise',
+        'meringue',
+        'custard',
+        'itlog',
+        'egg white',
+        'egg yolk',
+        'whole egg',
+        'egg powder',
       ],
       'wheat': [
         'gluten',
@@ -98,7 +291,12 @@ class DescriptionTab extends StatelessWidget {
         'bread',
         'pasta',
         'noodle',
-        'wrapper',
+        'harina',
+        'wheat starch',
+        'wheat germ',
+        'wheat bran',
+        'semolina',
+        'durum',
       ],
       'soy': [
         'lecithin',
@@ -109,12 +307,30 @@ class DescriptionTab extends StatelessWidget {
         'soybean',
         'soya',
         'edamame',
+        'toyo',
+        'soy sauce',
+        'soy protein',
+        'soy flour',
+        'soy oil',
+        'hydrolyzed soy protein',
       ],
-      'peanut': ['arachis', 'groundnut', 'arachis hypogaea'],
+      'fish': [
+        'anchovy',
+        'sardine',
+        'tuna',
+        'salmon',
+        'cod',
+        'mackerel',
+        'bagoong',
+        'patis',
+        'fish sauce',
+        'dried fish',
+        'isda',
+        'fish oil',
+        'fish protein',
+        'fish extract',
+      ],
       'shellfish': [
-        'crustacean',
-        'mollusc',
-        'chitin',
         'shrimp',
         'crab',
         'lobster',
@@ -123,9 +339,24 @@ class DescriptionTab extends StatelessWidget {
         'clam',
         'mussel',
         'scallop',
+        'alamang',
+        'hipon',
+        'crustacean',
+        'mollusk',
+        'oyster sauce',
+        'shrimp paste',
       ],
-      'fish': ['anchovy', 'sardine', 'tuna', 'salmon', 'cod', 'mackerel'],
-      'tree nut': [
+      'peanuts': [
+        'peanut',
+        'groundnut',
+        'arachis hypogaea',
+        'mani',
+        'peanut oil',
+        'peanut butter',
+        'peanut flour',
+        'peanut protein',
+      ],
+      'tree nuts': [
         'almond',
         'cashew',
         'walnut',
@@ -135,42 +366,25 @@ class DescriptionTab extends StatelessWidget {
         'macadamia',
         'brazil nut',
         'pine nut',
+        'nut oil',
+        'nut butter',
+        'nut flour',
       ],
-      'sesame': ['tahini', 'sesamum'],
+      'sesame': [
+        'sesame',
+        'tahini',
+        'sesamum',
+        'linga',
+        'sesame oil',
+        'sesame seed',
+        'sesame paste',
+      ],
     };
 
-    List<String> terms = technicalTerms[lowerAllergenName] ?? [];
+    // Check if ingredient contains any allergen-related terms
+    List<String> terms = allergenMapping[lowerAllergenName] ?? [];
     for (String term in terms) {
       if (lowerIngredient.contains(term)) {
-        return true;
-      }
-    }
-
-    if (lowerIngredient.contains('contains $lowerAllergenName') ||
-        lowerIngredient.contains('with $lowerAllergenName') ||
-        lowerIngredient.contains('that contains $lowerAllergenName')) {
-      return true;
-    }
-
-    Map<String, List<String>> foodCombinations = {
-      'egg': [
-        'lumpia wrapper',
-        'spring roll wrapper',
-        'wonton wrapper',
-        'pasta',
-        'noodles',
-        'bread',
-        'cake',
-        'cookie',
-        'biscuit',
-      ],
-      'wheat': ['wrapper', 'dumpling skin', 'tortilla', 'pita'],
-      'milk': ['chocolate', 'biscuit', 'cookie', 'cake'],
-    };
-
-    List<String> combinations = foodCombinations[lowerAllergenName] ?? [];
-    for (String combo in combinations) {
-      if (lowerIngredient.contains(combo)) {
         return true;
       }
     }
@@ -185,6 +399,7 @@ class DescriptionTab extends StatelessWidget {
   ) {
     Color chipColor = getIngredientColor(ingredient);
     bool isSafe = chipColor == Colors.grey;
+    bool hasAllergen = ingredientAllergenMap.containsKey(ingredient);
 
     return GestureDetector(
       onTap: () {
@@ -208,9 +423,7 @@ class DescriptionTab extends StatelessWidget {
       },
       child: Container(
         constraints: BoxConstraints(
-          maxWidth:
-              MediaQuery.of(context).size.width *
-              0.8, // Limit width to 80% of screen
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
         ),
         decoration: BoxDecoration(
           color: isSafe ? chipColor.withOpacity(0.15) : chipColor,
@@ -225,12 +438,20 @@ class DescriptionTab extends StatelessWidget {
         ),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: isEditing ? 10 : 12,
+            horizontal: widget.isEditing ? 10 : 12,
             vertical: 8,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (hasAllergen) ...[
+                Icon(
+                  Icons.warning,
+                  size: 12,
+                  color: isSafe ? Colors.black54 : Colors.white,
+                ),
+                const SizedBox(width: 4),
+              ],
               Flexible(
                 child: Text(
                   ingredient,
@@ -242,7 +463,7 @@ class DescriptionTab extends StatelessWidget {
                   ),
                 ),
               ),
-              if (!isEditing) ...[
+              if (!widget.isEditing) ...[
                 const SizedBox(width: 6),
                 Icon(
                   Icons.info_outline,
@@ -250,10 +471,10 @@ class DescriptionTab extends StatelessWidget {
                   color: isSafe ? Colors.black54 : Colors.white70,
                 ),
               ],
-              if (isEditing) ...[
+              if (widget.isEditing) ...[
                 const SizedBox(width: 6),
                 GestureDetector(
-                  onTap: () => removeIngredient(index),
+                  onTap: () => widget.removeIngredient(index),
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
@@ -279,7 +500,8 @@ class DescriptionTab extends StatelessWidget {
   }
 
   Widget buildColorLegendItem(Color color, String label) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 14,
@@ -323,7 +545,7 @@ class DescriptionTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            description,
+            widget.description,
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[700],
@@ -339,19 +561,19 @@ class DescriptionTab extends StatelessWidget {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               IconButton(
-                onPressed: toggleEdit,
+                onPressed: widget.toggleEdit,
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color:
-                        isEditing
+                        widget.isEditing
                             ? Colors.red[50]
                             : AppColors.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    isEditing ? Icons.close : Icons.edit,
-                    color: isEditing ? Colors.red : AppColors.primary,
+                    widget.isEditing ? Icons.close : Icons.edit,
+                    color: widget.isEditing ? Colors.red : AppColors.primary,
                     size: 20,
                   ),
                 ),
@@ -360,8 +582,7 @@ class DescriptionTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Container(
-            width: 400,
-            height: 100,
+            width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.05),
@@ -380,20 +601,15 @@ class DescriptionTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      buildColorLegendItem(Colors.grey, 'Safe'),
-                      const SizedBox(width: 20),
-                      buildColorLegendItem(Colors.green, 'Mild'),
-                      const SizedBox(width: 20),
-                      buildColorLegendItem(Colors.orange, 'Moderate'),
-                      const SizedBox(width: 20),
-                      buildColorLegendItem(Colors.red, 'Severe'),
-                    ],
-                  ),
+                Wrap(
+                  spacing: 20,
+                  runSpacing: 8,
+                  children: [
+                    buildColorLegendItem(Colors.grey, 'Safe'),
+                    buildColorLegendItem(Colors.green, 'Mild'),
+                    buildColorLegendItem(Colors.orange, 'Moderate'),
+                    buildColorLegendItem(Colors.red, 'Severe'),
+                  ],
                 ),
               ],
             ),
@@ -418,24 +634,45 @@ class DescriptionTab extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Ingredients (${currentIngredients.length}):',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    color: AppColors.textBlack,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      'Ingredients (${widget.currentIngredients.length}):',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        color: AppColors.textBlack,
+                      ),
+                    ),
+                    if (isAnalyzing) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    for (int i = 0; i < currentIngredients.length; i++)
-                      buildIngredientChip(currentIngredients[i], i, context),
-                    if (isEditing)
+                    for (int i = 0; i < widget.currentIngredients.length; i++)
+                      buildIngredientChip(
+                        widget.currentIngredients[i],
+                        i,
+                        context,
+                      ),
+                    if (widget.isEditing)
                       GestureDetector(
-                        onTap: addIngredient,
+                        onTap: widget.addIngredient,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -475,7 +712,7 @@ class DescriptionTab extends StatelessWidget {
               ],
             ),
           ),
-          if (isEditing) ...[
+          if (widget.isEditing) ...[
             const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -483,7 +720,7 @@ class DescriptionTab extends StatelessWidget {
                 children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: saveChanges,
+                      onPressed: widget.saveChanges,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -505,7 +742,7 @@ class DescriptionTab extends StatelessWidget {
                   const SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: toggleEdit,
+                      onPressed: widget.toggleEdit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.grey[100],
                         foregroundColor: Colors.grey[700],

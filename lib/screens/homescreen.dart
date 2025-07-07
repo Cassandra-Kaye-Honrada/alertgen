@@ -254,6 +254,7 @@ class HomescreenState extends State<Homescreen> {
               name: allergenMap['name'] ?? 'Unknown',
               riskLevel: allergenMap['riskLevel'] ?? 'mild',
               symptoms: List<String>.from(allergenMap['symptoms'] ?? []),
+                source: allergen['source'] ?? '',
             );
           }).toList();
       if (fileName == null) return;

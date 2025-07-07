@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:email_validator/email_validator.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -188,11 +189,60 @@ Future<bool> checkIfCompletedOnboarding() async {
   }
 }
 
-  void signInWithFacebook() async {
+
+void signInWithFacebook() async {
+  try {
+    // Trigger the Facebook sign-in flow
+    final LoginResult loginResult = await FacebookAuth.instance.login();
+
+    if (loginResult.status == LoginStatus.success) {
+      final AccessToken accessToken = loginResult.accessToken!;
+      
+      final OAuthCredential facebookAuthCredential =
+          FacebookAuthProvider.credential(accessToken.tokenString
+);
+
+      final userCredential = await FirebaseAuth.instance
+          .signInWithCredential(facebookAuthCredential);
+
+      final user = userCredential.user;
+      bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
+
+      if (isNewUser) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(email: user?.email ?? 'your email'),
+          ),
+        );
+      } else {
+        bool hasCompletedOnboarding = await checkIfCompletedOnboarding();
+
+        if (hasCompletedOnboarding) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => Homescreen()),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => OnboardingScreen()),
+          );
+        }
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Signed in with Facebook')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Facebook sign-in failed: ${loginResult.message}')),
+      );
+    }
+  } catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Facebook sign-in coming soon')),
+      SnackBar(content: Text('Error during Facebook login: ${e.toString()}')),
     );
   }
+}
+
 
   void navigateToSignUp() {
     Navigator.of(
