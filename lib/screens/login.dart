@@ -1,7 +1,9 @@
+import 'package:allergen/screens/homescreen.dart';
 import 'package:allergen/screens/onboarding.dart';
 import 'package:allergen/screens/reset_password.dart';
 import 'package:allergen/screens/signupscreen.dart';
 import 'package:allergen/screens/verify_google.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:email_validator/email_validator.dart';
@@ -19,136 +21,172 @@ class LoginScreenState extends State<LoginScreen> {
   bool rememberMe = false;
   bool obscurePassword = true;
   bool isLoading = false;
- bool isCheckingAuth = true;
 
   final auth = FirebaseAuth.instance;
 
-   @override
-  void initState() {
-    super.initState();
-    _checkAuthState(); 
-  }
+ Future<void> signIn() async {
+  if (formKey.currentState!.validate()) {
+    setState(() {
+      isLoading = true;
+    });
 
-   Future<void> _checkAuthState() async {
-    await Future.delayed(Duration(milliseconds: 100)); 
-    
-    User? currentUser = auth.currentUser;
-    
-    if (currentUser != null) {
-      if (mounted) {
+    try {
+      await auth.signInWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+      );
+
+      User? user = auth.currentUser;
+
+      if (user != null && !user.emailVerified) {
+        await user.sendEmailVerification();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verification email sent.')),
+        );
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => OnboardingScreen()),
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(email: user.email ?? 'your email'),
+          ),
         );
-      }
-    } else {
-      if (mounted) {
-        setState(() {
-          isCheckingAuth = false;
-        });
-      }
-    }
-  }
-
-  Future<void> signIn() async {
-    if (formKey.currentState!.validate()) {
-      setState(() {
-        isLoading = true;
-      });
-
-      try {
-        await auth.signInWithEmailAndPassword(
-          email: emailController.text.trim(),
-          password: passwordController.text,
-        );
-
-        User? user = auth.currentUser;
-
-        if (user != null && !user.emailVerified) {
-          await user.sendEmailVerification();
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Verification email sent.')),
-          );
-
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder:
-                  (_) => VerifyEmailScreen(email: user.email ?? 'your email'),
-            ),
-          );
-        } else {
+      } else {
+        bool isNewUser = await checkIfNewUser();
+        
+        if (isNewUser) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => OnboardingScreen()),
           );
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Signed in successfully')),
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => Homescreen()),
           );
         }
-      } on FirebaseAuthException catch (e) {
-        String message;
-        switch (e.code) {
-          case 'user-not-found':
-            message = 'No user found for this email';
-            break;
-          case 'wrong-password':
-            message = 'Wrong password provided';
-            break;
-          case 'invalid-email':
-            message = 'Invalid email address';
-            break;
-          case 'user-disabled':
-            message = 'User account has been disabled';
-            break;
-          default:
-            message = 'An error occurred. Please try again';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed in successfully')),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'No user found for this email';
+          break;
+        case 'wrong-password':
+          message = 'Wrong password provided';
+          break;
+        case 'invalid-email':
+          message = 'Invalid email address';
+          break;
+        case 'user-disabled':
+          message = 'User account has been disabled';
+          break;
+        default:
+          message = 'An error occurred. Please try again';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+}
+
+// Updated Google Sign-In method
+void signInWithGoogle() async {
+  try {
+    await GoogleSignIn().signOut();
+
+    final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+    if (googleUser == null) return;
+
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    final UserCredential userCredential = await FirebaseAuth.instance
+        .signInWithCredential(credential);
+
+    final user = userCredential.user;
+
+    if (user != null) {
+      // Check if this is a new user
+      bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
+      
+      if (isNewUser) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(email: user.email ?? 'your email'),
+          ),
+        );
+      } else {
+        bool hasCompletedOnboarding = await checkIfCompletedOnboarding();
+        
+        if (hasCompletedOnboarding) {
+          // Go to home screen
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => Homescreen()),
+          );
+        } else {
+          // Go to onboarding
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => OnboardingScreen()),
+          );
         }
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      } finally {
-        setState(() {
-          isLoading = false;
-        });
       }
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Signed in with Google')),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Google sign-in failed')),
+    );
   }
+}
 
-  void signInWithGoogle() async {
-    try {
-      await GoogleSignIn().signOut();
-
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return;
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      final UserCredential userCredential = await FirebaseAuth.instance
-          .signInWithCredential(credential);
-
-      final user = userCredential.user;
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VerifyEmailScreen(email: user?.email ?? 'your email'),
-        ),
-      );
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Signed in with Google')));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Google sign-in failed')));
+Future<bool> checkIfNewUser() async {
+  try {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      
+      return !userDoc.exists;
     }
+    return true;
+  } catch (e) {
+    return true; // Default to new user if error
   }
+}
+
+Future<bool> checkIfCompletedOnboarding() async {
+  try {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      QuerySnapshot allergenSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('profile')
+          .where('type', isEqualTo: 'allergen')
+          .limit(1)
+          .get();
+      
+      return allergenSnapshot.docs.isNotEmpty;
+    }
+    return false;
+  } catch (e) {
+    return false; 
+  }
+}
 
   void signInWithFacebook() async {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -187,40 +225,7 @@ class LoginScreenState extends State<LoginScreen> {
 
    @override
   Widget build(BuildContext context) {
-    if (isCheckingAuth) {
-      return Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                child: Image.asset(
-                  'assets/images/logo.png',
-                  fit: BoxFit.contain,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const CircularProgressIndicator(
-                color: Color(0xFF00A19C),
-                strokeWidth: 2,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Loading...',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                  fontFamily: 'Poppins',
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+  
 
     return Scaffold(
       backgroundColor: Colors.white,

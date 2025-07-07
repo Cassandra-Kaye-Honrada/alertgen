@@ -1,3 +1,4 @@
+import 'package:allergen/screens/authwrapper.dart';
 import 'package:allergen/screens/login.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
@@ -153,33 +154,34 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  void _navigateAfterDelay() {
-    Future.delayed(Duration(seconds: 5), () {
-      if (mounted) {
-        // Smooth fade out before navigation
-        _rotationController.stop();
-        _waveController.stop();
-        _pulseController.stop();
+// In your SplashScreen class, update the _navigateAfterDelay method:
 
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder:
-                (context, animation, secondaryAnimation) => LoginScreen(),
-            transitionsBuilder: (
-              context,
-              animation,
-              secondaryAnimation,
-              child,
-            ) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: Duration(milliseconds: 500),
-          ),
-        );
-      }
-    });
-  }
+void _navigateAfterDelay() {
+  Future.delayed(Duration(seconds: 5), () {
+    if (mounted) {
+      // Smooth fade out before navigation
+      _rotationController.stop();
+      _waveController.stop();
+      _pulseController.stop();
+
+      Navigator.pushReplacement(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => AuthWrapper(),
+          transitionsBuilder: (
+            context,
+            animation,
+            secondaryAnimation,
+            child,
+          ) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          transitionDuration: Duration(milliseconds: 500),
+        ),
+      );
+    }
+  });
+}
 
   @override
   void dispose() {

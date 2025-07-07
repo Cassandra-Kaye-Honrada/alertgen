@@ -55,7 +55,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     fetchUsername();
     loadExistingAllergens();
     searchController.addListener(_onSearchChanged);
-    
   }
 
   List<String> _getAllAllergens() {
@@ -74,7 +73,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _clearSearch() {
     searchController.clear();
-   
   }
 
   void _onSearchChanged() {
@@ -867,9 +865,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           }
 
                           await batch.commit();
-                         Navigator.of(context).pushReplacement(
-  MaterialPageRoute(builder: (_) => ProfileDetailsScreen()),
-);
+
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => ProfileDetailsScreen(),
+                            ),
+                          );
 
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

@@ -1,6 +1,6 @@
 import 'package:allergen/screens/emergency/emergency_settings_screen.dart';
 import 'package:allergen/screens/models/emergency_settings.dart';
-import 'package:allergen/screens/models/emergency_contact.dart'; // ✅ Use the models version
+import 'package:allergen/screens/models/emergency_contact.dart';
 import 'package:allergen/screens/profile_screen_items/edit_profile.dart';
 import 'package:allergen/screens/login.dart';
 import 'package:allergen/screens/profile_screen_items/about_screen.dart';
@@ -30,7 +30,7 @@ class UserProfile extends StatefulWidget {
 }
 
 class _UserProfileState extends State<UserProfile> {
-  int _currentIndex = 2; // Profile is active
+  int _currentIndex = 2;
   String username = 'Loading...';
   String firstName = '';
   String lastName = '';
@@ -340,37 +340,36 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   // Perform logout
-void _performLogout() async {
-  try {
-    await FirebaseAuth.instance.signOut();
-    
+  void _performLogout() async {
     try {
+      await FirebaseAuth.instance.signOut();
       await GoogleSignIn().signOut();
-    } catch (e) {
-      print('Google sign out error (can be ignored): $e');
-    }
-    
-    print('User logged out successfully');
 
-   
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/', 
-        (route) => false,
-      );
-    }
-  } catch (e) {
-    print('Error during logout: $e');
-    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error logging out: $e'),
-          backgroundColor: Colors.red,
+        const SnackBar(
+          content: Text('Logged out successfully'),
+          backgroundColor: Colors.green,
         ),
       );
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => LoginScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      print('Error during logout: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error logging out: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
-}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
