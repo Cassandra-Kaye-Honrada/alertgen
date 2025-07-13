@@ -13,7 +13,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ResultScreen extends StatefulWidget {
-  final File image;
+  final File? image;
   final String dishName;
   final String description;
   final List<String> ingredients;
@@ -330,15 +330,26 @@ Only return the JSON object, no additional text.
             padding: EdgeInsets.all(16),
             child: Row(
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(
-                    widget.image,
+                if (widget.image != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      widget.image!,
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                else
+                  Container(
                     width: 120,
                     height: 120,
-                    fit: BoxFit.cover,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.photo, size: 40, color: Colors.grey),
                   ),
-                ),
                 SizedBox(width: 16),
                 Expanded(
                   child: Column(

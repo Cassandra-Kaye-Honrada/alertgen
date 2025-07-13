@@ -5,8 +5,10 @@ import 'package:allergen/screens/ProfileScreen.dart';
 import 'package:allergen/screens/homescreen.dart';
 import 'package:allergen/screens/result_screen.dart';
 import 'package:allergen/services/emergency/emergency_service.dart';
+import 'package:allergen/styleguide.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:camera/camera.dart';
@@ -43,6 +45,10 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   List<AllergenInfo> allergens = [];
   bool isOCRAnalysis = false;
   List<String> alternativeProducts = [];
+  bool _showManualInput = false;
+  final TextEditingController _ingredientController = TextEditingController();
+  final FocusNode _ingredientFocusNode = FocusNode();
+  final TextEditingController _dishNameController = TextEditingController();
 
   @override
   void initState() {
@@ -156,9 +162,13 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -166,6 +176,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     _animationController.dispose();
     _cameraController?.dispose();
     textRecognizer?.close();
+    _ingredientController.dispose();
+    _ingredientFocusNode.dispose();
     super.dispose();
   }
 
@@ -634,7 +646,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
       MaterialPageRoute(
         builder:
             (context) => ResultScreen(
-              image: _image!,
+              image: _image,
               dishName: dishName,
               description: description,
               ingredients: ingredients,
@@ -646,7 +658,92 @@ Base your identification primarily on what you can SEE in the image. Be specific
     );
   }
 
-  Future<void> saveToFirebase(File imageFile) async {
+  Future<String> _generateDescription(
+    String dishName,
+    List<String> ingredients,
+  ) async {
+    if (apiKey == 'YOUR_API_KEY_HERE') return "Description not available";
+
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash-preview-04-17',
+        apiKey: apiKey,
+      );
+
+      final prompt = '''
+Generate a detailed description of the Filipino dish "$dishName" that includes:
+
+The dish contains these ingredients: ${ingredients.join(', ')}.
+
+Make the description:
+1. Culturally accurate for Filipino cuisine
+2. 2-3 sentences long
+3. Enticing and informative
+4. Focused on visual and sensory details
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      return response.text ?? 'No description available';
+    } catch (e) {
+      print('Error generating description: $e');
+      return 'Description not available due to error';
+    }
+  }
+
+  // Update the manual submission method
+  void _submitManualIngredients() async {
+    final dishNameText = _dishNameController.text.trim();
+    final ingredientText = _ingredientController.text.trim();
+
+    if (dishNameText.isEmpty || ingredientText.isEmpty) {
+      _showSnackBar('Please enter both dish name and ingredients', Colors.red);
+      return;
+    }
+
+    final enteredIngredients =
+        ingredientText
+            .split(',')
+            .map((ingredient) => ingredient.trim())
+            .where((ingredient) => ingredient.isNotEmpty)
+            .toList();
+
+    setState(() {
+      loading = true;
+      dishName = dishNameText;
+      ingredients = enteredIngredients;
+      _image = null;
+      isOCRAnalysis = false;
+      _showManualInput = false;
+    });
+
+    try {
+      // Generate description using AI
+      final generatedDescription = await _generateDescription(
+        dishNameText,
+        enteredIngredients,
+      );
+
+      setState(() {
+        description = generatedDescription;
+      });
+
+      // Update allergens
+      await updateAllergens(enteredIngredients);
+
+      await saveToFirebase(null);
+
+      _navigateToResults();
+    } catch (e) {
+      _showSnackBar('Error analyzing ingredients: $e', Colors.red);
+    } finally {
+      setState(() => loading = false);
+    }
+
+    _dishNameController.clear();
+    _ingredientController.clear();
+  }
+
+  Future<void> saveToFirebase(File? imageFile) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
@@ -654,23 +751,26 @@ Base your identification primarily on what you can SEE in the image. Be specific
         return;
       }
 
-      if (!await imageFile.exists()) return;
+      String? imageUrl;
+      String? fileName;
 
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('food_images')
-          .child(user.uid)
-          .child(fileName);
+      if (imageFile != null && await imageFile.exists()) {
+        fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('food_images')
+            .child(user.uid)
+            .child(fileName!);
 
-      final uploadTask = storageRef.putFile(imageFile);
-      final uploadResult = await uploadTask;
-      final imageUrl = await uploadResult.ref.getDownloadURL();
+        final uploadTask = storageRef.putFile(imageFile);
+        final uploadResult = await uploadTask;
+        imageUrl = await uploadResult.ref.getDownloadURL();
+      }
 
       final scanData = {
         'dishName': dishName.isNotEmpty ? dishName : 'Unknown Product',
         'description':
-            description.isNotEmpty ? description : 'No description available',
+            description.isNotEmpty ? description : 'User-entered dish',
         'ingredients': ingredients.isNotEmpty ? ingredients : [],
         'allergens':
             allergens
@@ -682,8 +782,8 @@ Base your identification primarily on what you can SEE in the image. Be specific
                   },
                 )
                 .toList(),
-        'imageUrl': imageUrl,
-        'fileName': fileName,
+        'imageUrl': imageUrl ?? '',
+        'fileName': fileName ?? '',
         'isOCRAnalysis': isOCRAnalysis,
         'timestamp': FieldValue.serverTimestamp(),
         'scanDate': DateTime.now().toIso8601String(),
@@ -773,7 +873,8 @@ If any technical ingredient terms are detected, map them to their corresponding 
               '• Detects 9 common allergens in both cases\n'
               '• Automatically determines if scanning a dish or product label\n'
               '• Tap center button to capture and analyze\n'
-              '• View detailed allergen risk levels',
+              '• View detailed allergen risk levels\n'
+              '• Or enter ingredients manually',
             ),
             actions: [
               TextButton(
@@ -932,6 +1033,147 @@ If any technical ingredient terms are detected, map them to their corresponding 
     );
   }
 
+  void _toggleManualInput() {
+    setState(() {
+      _showManualInput = !_showManualInput;
+      if (_showManualInput) {
+        _dishNameController.clear();
+        _ingredientController.clear();
+      }
+    });
+  }
+
+  Widget _buildManualInputForm() {
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      bottom: _showManualInput ? 0 : -400,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Enter Dish Details',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+
+            // Add dish name field
+            TextField(
+              controller: _dishNameController,
+              decoration: InputDecoration(
+                labelText: 'Dish Name',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: const BorderSide(color: Colors.grey),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF00BCD4),
+                    width: 2,
+                  ),
+                ),
+                filled: true,
+                fillColor: Colors.grey[100],
+                contentPadding: const EdgeInsets.all(16),
+              ),
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Enter ingredients separated by commas:',
+              style: TextStyle(fontSize: 16, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _ingredientController,
+              focusNode: _ingredientFocusNode,
+              maxLines: 5,
+              minLines: 3,
+              decoration: InputDecoration(
+                hintText: 'e.g., chicken, soy sauce, garlic, onions, ...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: const BorderSide(color: Colors.grey),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF00BCD4),
+                    width: 2,
+                  ),
+                ),
+                filled: true,
+                fillColor: Colors.grey[100],
+                contentPadding: const EdgeInsets.all(16),
+              ),
+              style: const TextStyle(fontSize: 16),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submitManualIngredients(),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: _toggleManualInput,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[300],
+                    foregroundColor: Colors.black87,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: _submitManualIngredients,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00BCD4),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                  ),
+                  child: const Text('Analyze'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -952,6 +1194,11 @@ If any technical ingredient terms are detected, map them to their corresponding 
           IconButton(
             icon: const Icon(Icons.help_outline, color: Colors.white),
             onPressed: _showHelpDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_note, color: Colors.white),
+            onPressed: _toggleManualInput,
+            tooltip: 'Enter ingredients manually',
           ),
         ],
       ),
@@ -975,7 +1222,7 @@ If any technical ingredient terms are detected, map them to their corresponding 
           ),
 
           // Scanner overlay
-          if (_image == null && _isCameraInitialized)
+          if (_image == null && _isCameraInitialized && !_showManualInput)
             Center(child: ScannerOverlay(animation: _animation)),
 
           // Loading overlay
@@ -997,8 +1244,12 @@ If any technical ingredient terms are detected, map them to their corresponding 
               ),
             ),
 
-          _buildCameraControls(),
-          _buildBottomNavigation(),
+          // Camera controls (only when manual input is hidden)
+          if (!_showManualInput) _buildCameraControls(),
+          if (!_showManualInput) _buildBottomNavigation(),
+
+          // Manual ingredient input form
+          _buildManualInputForm(),
         ],
       ),
     );
@@ -1170,5 +1421,44 @@ class AllergenInfo {
     final firstLetter = name[0].toUpperCase();
     final rest = name.substring(1).toLowerCase();
     return 'assets/allergens/$firstLetter$rest.png';
+  }
+
+  IconData get iconData {
+    final String name = this.name.toLowerCase().trim();
+    switch (name) {
+      case 'milk':
+      case 'dairy':
+        return FontAwesomeIcons.glassWater;
+      case 'cashew':
+      case 'nuts':
+      case 'nut':
+      case 'tree nuts':
+        return FontAwesomeIcons.seedling;
+      case 'egg':
+      case 'eggs':
+        return FontAwesomeIcons.egg;
+      case 'fish':
+        return FontAwesomeIcons.fish;
+      case 'wheat':
+      case 'gluten':
+        return FontAwesomeIcons.wheatAwn;
+      case 'soy':
+      case 'soybean':
+      case 'soya':
+        return FontAwesomeIcons.leaf;
+      case 'shellfish':
+      case 'seafood':
+      case 'crustacean':
+        return FontAwesomeIcons.shrimp;
+      case 'peanut':
+      case 'peanuts':
+        return FontAwesomeIcons.circleNodes;
+      case 'sesame':
+        return FontAwesomeIcons.pepperHot;
+      case 'lupin':
+        return FontAwesomeIcons.spa;
+      default:
+        return FontAwesomeIcons.triangleExclamation;
+    }
   }
 }

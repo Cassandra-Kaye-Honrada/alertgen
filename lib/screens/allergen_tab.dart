@@ -1,8 +1,11 @@
 import 'package:allergen/screens/scan_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:allergen/styleguide.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AllergenTab extends StatefulWidget {
   final List<AllergenInfo> currentAllergens;
@@ -25,15 +28,110 @@ class AllergenTab extends StatefulWidget {
 class AllergenTabState extends State<AllergenTab> {
   List<AlternativeProduct> alternativeProducts = [];
   bool isLoadingAlternatives = false;
+  Set<String> userAllergens = {}; // Store user's allergens
+  bool isLoadingUserAllergens = true;
 
   @override
   void initState() {
     super.initState();
+    _loadUserAllergens();
     if (widget.isOCRAnalysis &&
         widget.currentAllergens.isNotEmpty &&
         widget.productName != null) {
       loadAlternativeProducts();
     }
+  }
+
+  // Load user's allergens from Firebase
+  Future<void> _loadUserAllergens() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        QuerySnapshot allergenSnapshot =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('profile')
+                .where('type', isEqualTo: 'allergen')
+                .get();
+
+        Set<String> allergens = {};
+        for (QueryDocumentSnapshot doc in allergenSnapshot.docs) {
+          String allergenName = doc['name'].toString().toLowerCase();
+          allergens.add(allergenName);
+        }
+
+        setState(() {
+          userAllergens = allergens;
+          isLoadingUserAllergens = false;
+        });
+      } else {
+        setState(() {
+          isLoadingUserAllergens = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading user allergens: $e');
+      setState(() {
+        isLoadingUserAllergens = false;
+      });
+    }
+  }
+
+  Color _getAllergenColor(AllergenInfo allergen) {
+    if (isLoadingUserAllergens) {
+      return Colors.grey;
+    }
+
+    String allergenName = allergen.name.toLowerCase();
+
+    bool userHasAllergen =
+        userAllergens.contains(allergenName) ||
+        userAllergens.any(
+          (userAllergen) =>
+              userAllergen.contains(allergenName) ||
+              allergenName.contains(userAllergen),
+        );
+
+    return userHasAllergen ? Colors.red : AppColors.primary;
+  }
+
+  Color _getAllergenBackgroundColor(AllergenInfo allergen) {
+    if (isLoadingUserAllergens) {
+      return Colors.white;
+    }
+
+    String allergenName = allergen.name.toLowerCase();
+
+    bool userHasAllergen =
+        userAllergens.contains(allergenName) ||
+        userAllergens.any(
+          (userAllergen) =>
+              userAllergen.contains(allergenName) ||
+              allergenName.contains(userAllergen),
+        );
+
+    return userHasAllergen ? Colors.red.withOpacity(0.1) : Colors.white;
+  }
+
+  Color _getAllergenBorderColor(AllergenInfo allergen) {
+    if (isLoadingUserAllergens) {
+      return Colors.grey.withOpacity(0.3);
+    }
+
+    String allergenName = allergen.name.toLowerCase();
+
+    bool userHasAllergen =
+        userAllergens.contains(allergenName) ||
+        userAllergens.any(
+          (userAllergen) =>
+              userAllergen.contains(allergenName) ||
+              allergenName.contains(userAllergen),
+        );
+
+    // If user has the allergen, return red border
+    // If user doesn't have the allergen, return transparent border
+    return userHasAllergen ? Colors.red.withOpacity(0.3) : Colors.transparent;
   }
 
   Future<void> loadAlternativeProducts() async {
@@ -375,7 +473,7 @@ class AllergenTabState extends State<AllergenTab> {
                 'Allergenic Overview',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              if (widget.isUpdatingAllergens)
+              if (widget.isUpdatingAllergens || isLoadingUserAllergens)
                 SizedBox(
                   width: 20,
                   height: 20,
@@ -392,52 +490,60 @@ class AllergenTabState extends State<AllergenTab> {
 
           if (widget.currentAllergens.isNotEmpty)
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 12,
+              runSpacing: 16,
               children:
                   widget.currentAllergens.map((allergen) {
-                    return SizedBox(
-                      width: 100,
-                      height: 100,
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: allergen.color.withOpacity(0.1),
-                          border: Border.all(
-                            color: allergen.color.withOpacity(0.3),
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Image.asset(
-                              allergen.iconPath,
-                              width: 32,
-                              height: 32,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(
-                                  Icons.warning,
-                                  size: 32,
-                                  color: allergen.color,
-                                );
-                              },
-                            ),
-                            SizedBox(height: 6),
-                            Text(
-                              allergen.name,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: allergen.color,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 12,
+                    Color allergenColor = _getAllergenColor(allergen);
+                    Color backgroundColor = _getAllergenBackgroundColor(
+                      allergen,
+                    );
+                    Color borderColor = _getAllergenBorderColor(allergen);
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 72,
+                          height: 72,
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: backgroundColor,
+                            border: Border.all(color: borderColor, width: 1.5),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 4,
+                                spreadRadius: 1,
+                                offset: const Offset(0, 2),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                            ],
+                          ),
+                          child: Center(
+                            child: FaIcon(
+                              allergen.iconData,
+                              color: AppColors.primaryColor3,
+                              size: 22,
                             ),
-                          ],
+                          ),
                         ),
-                      ),
+                        SizedBox(height: 6),
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            allergen.name,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: allergenColor,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     );
                   }).toList(),
             )
@@ -449,6 +555,14 @@ class AllergenTabState extends State<AllergenTab> {
                 color: Colors.green[50],
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.green.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 6,
+                    spreadRadius: 1,
+                    offset: Offset(0, 3),
+                  ),
+                ],
               ),
               child: Column(
                 children: [
@@ -505,6 +619,14 @@ class AllergenTabState extends State<AllergenTab> {
                   color: Colors.blue[50],
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 6,
+                      spreadRadius: 1,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Column(
                   children: [
@@ -539,19 +661,28 @@ class AllergenTabState extends State<AllergenTab> {
           children:
               alternativeProducts.map((product) {
                 return Container(
-                  width: 120,
-                  margin: EdgeInsets.only(right: 12),
+                  width: 140,
+                  margin: EdgeInsets.only(right: 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        height: 100,
+                        height: 120,
                         decoration: BoxDecoration(
                           color: Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: Colors.green.withOpacity(0.3),
+                            width: 1.5,
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 6,
+                              spreadRadius: 1,
+                              offset: Offset(0, 3),
+                            ),
+                          ],
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
@@ -568,7 +699,7 @@ class AllergenTabState extends State<AllergenTab> {
                                   : buildPlaceholderImage(),
                         ),
                       ),
-                      SizedBox(height: 8),
+                      SizedBox(height: 12),
                       Text(
                         product.name,
                         style: TextStyle(
@@ -597,29 +728,36 @@ class AllergenTabState extends State<AllergenTab> {
     } else if (isLoadingAlternatives) {
       return Row(
         children: List.generate(3, (index) {
-          return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(right: index < 2 ? 8 : 0),
-              height: 120,
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.search, size: 32, color: Colors.grey),
-                  SizedBox(height: 8),
-                  Text(
-                    'Searching...',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          return Container(
+            margin: EdgeInsets.only(right: 16),
+            width: 140,
+            child: Column(
+              children: [
+                Container(
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
                   ),
-                  Text(
-                    'Safe alternatives',
-                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                    ),
                   ),
-                ],
-              ),
+                ),
+                SizedBox(height: 12),
+                Container(height: 16, width: 80, color: Colors.grey[200]),
+                SizedBox(height: 4),
+                Container(height: 12, width: 60, color: Colors.grey[200]),
+              ],
             ),
           );
         }),
@@ -645,7 +783,6 @@ class AllergenTabState extends State<AllergenTab> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Added visual element
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -658,10 +795,7 @@ class AllergenTabState extends State<AllergenTab> {
                 color: Colors.blue[300],
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Improved typography hierarchy
             Text(
               'No Alternative Products Found',
               style: TextStyle(
@@ -673,10 +807,7 @@ class AllergenTabState extends State<AllergenTab> {
               ),
               textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 8),
-
-            // Enhanced secondary text
             Text(
               'We couldn\'t find safe alternatives matching your criteria',
               style: TextStyle(
@@ -687,7 +818,6 @@ class AllergenTabState extends State<AllergenTab> {
               ),
               textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 16),
           ],
         ),

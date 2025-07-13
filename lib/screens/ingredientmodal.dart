@@ -21,6 +21,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
   List<String> allergensFound = [];
   String riskLevel = 'Unknown';
   String? errorMessage;
+  String detectionMethod = '';
 
   final geminiApiKey = 'AIzaSyCzyd0ukiEilgPiJ29HNplB2UtWyOKCZkA';
   final usdaApiKey = 'CKNlV96OlhW76cXyo151cbnEKe0e6P2Up85QVlTs';
@@ -38,26 +39,48 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
         errorMessage = null;
       });
 
-      final localAllergens = detectLocalAllergens(widget.ingredient);
+      // Step 1: First simplify the ingredient using AI
+      final simplifiedResult = await simplifyIngredientWithAI(
+        widget.ingredient,
+      );
+      String ingredientToAnalyze =
+          simplifiedResult['simplified'] ?? widget.ingredient;
 
-      if (localAllergens.isNotEmpty) {
-        setState(() {
-          allergensFound = localAllergens;
-          riskLevel = 'Contains allergen';
-          isLoading = false;
-        });
-      } else {
-        simplifiedIngredient = await getSimplifiedIngredient(widget.ingredient);
-        final usdaAllergens = await getAllergenInfoFromUSDA(
-          simplifiedIngredient,
+      setState(() {
+        simplifiedIngredient = ingredientToAnalyze;
+      });
+
+      // Step 2: Try USDA API with the simplified ingredient
+      final usdaResult = await checkUSDADatabaseEnhanced(ingredientToAnalyze);
+
+      if (usdaResult['found'] == true) {
+        final allergenAnalysis = await analyzeUSDADataForAllergens(
+          usdaResult['data'],
         );
 
-        setState(() {
-          allergensFound = usdaAllergens['allergens'] ?? [];
-          riskLevel = usdaAllergens['risk'] ?? 'Unknown';
-          isLoading = false;
-        });
+        if (allergenAnalysis['allergens'].isNotEmpty) {
+          setState(() {
+            allergensFound = allergenAnalysis['allergens'];
+            riskLevel = allergenAnalysis['risk'];
+            detectionMethod = 'USDA Database';
+            isLoading = false;
+          });
+          return;
+        }
       }
+
+      // Step 3: Fallback to AI analysis if USDA doesn't find allergens
+      final aiResult = await getEnhancedAIAllergenAnalysis(ingredientToAnalyze);
+
+      setState(() {
+        allergensFound = aiResult['allergens'] ?? [];
+        riskLevel = aiResult['risk'] ?? 'Safe';
+        detectionMethod =
+            aiResult['allergens']?.isNotEmpty == true
+                ? 'AI Analysis'
+                : 'No allergens detected';
+        isLoading = false;
+      });
     } catch (e) {
       setState(() {
         errorMessage = e.toString();
@@ -66,169 +89,505 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
     }
   }
 
-  List<String> detectLocalAllergens(String ingredient) {
-    String lowerIngredient = ingredient.toLowerCase();
-    List<String> foundAllergens = [];
+  Future<Map<String, dynamic>> simplifyIngredientWithAI(
+    String ingredient,
+  ) async {
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: geminiApiKey,
+      );
 
-    Map<String, List<String>> allergenTerms = {
-      'Egg': [
-        'egg',
-        'eggs',
-        'albumin',
-        'ovalbumin',
-        'ovomucin',
-        'ovomucoid',
-        'lysozyme',
-        'lecithin',
-        'mayonnaise',
-        'meringue',
-        'custard',
-      ],
-      'Milk': [
+      final prompt = '''
+Simplify this ingredient name to its core components for food database search.
+
+INGREDIENT: "$ingredient"
+
+RULES:
+1. Remove brand names, cooking methods, and descriptive words
+2. Keep only the essential food item name
+3. If it's a sauce or complex dish, identify the main ingredients
+4. Convert to simple, searchable terms
+5. For Filipino/local terms, provide English equivalents
+
+EXAMPLES:
+- "Fried chicken with garlic sauce" → "chicken"
+- "Sweet and sour pork" → "pork, sweet and sour sauce"
+- "Coca-Cola" → "cola"
+- "Knorr chicken cube" → "chicken bouillon"
+- "Patis" → "fish sauce"
+
+Return JSON:
+{
+  "simplified": "simplified_ingredient_name",
+  "components": ["component1", "component2"]
+}
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      String cleanResponse = response.text ?? '';
+
+      if (cleanResponse.contains('```json')) {
+        cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+
+      return {
+        'simplified': jsonData['simplified'] ?? ingredient,
+        'components':
+            (jsonData['components'] as List?)?.cast<String>() ?? [ingredient],
+      };
+    } catch (e) {
+      return {
+        'simplified': ingredient,
+        'components': [ingredient],
+      };
+    }
+  }
+
+  // Enhanced rule-based detection with comprehensive patterns
+  Map<String, dynamic> detectAllergensWithEnhancedRules(String ingredient) {
+    List<String> allergens = [];
+    String lowerIngredient = ingredient.toLowerCase();
+
+    // Comprehensive allergen detection patterns
+    final Map<String, List<String>> allergenPatterns = {
+      'milk': [
         'milk',
         'dairy',
-        'casein',
-        'whey',
-        'lactose',
-        'lactalbumin',
-        'lactoglobulin',
         'cheese',
         'butter',
         'cream',
+        'whey',
+        'casein',
+        'lactose',
         'yogurt',
+        'kefir',
+        'buttermilk',
+        'ghee',
+        'condensed milk',
+        'evaporated milk',
+        'skim milk',
+        'whole milk',
+        'milk powder',
+        'sodium caseinate',
+        'calcium caseinate',
+        'lactalbumin',
+        'lactoglobulin',
+        'gatas',
+        'kesong puti',
       ],
-      'Wheat': [
+      'eggs': [
+        'egg',
+        'albumin',
+        'lecithin',
+        'ovalbumin',
+        'ovomucin',
+        'ovotransferrin',
+        'egg white',
+        'egg yolk',
+        'egg powder',
+        'dried egg',
+        'mayonnaise',
+        'meringue',
+        'custard',
+        'eggnog',
+        'itlog',
+        'balut',
+      ],
+      'wheat': [
         'wheat',
-        'gluten',
-        'gliadin',
-        'glutenin',
         'flour',
+        'gluten',
         'bread',
         'pasta',
-        'noodle',
-        'wrapper',
-        'triticum',
+        'noodles',
+        'semolina',
+        'bulgur',
+        'couscous',
+        'spelt',
+        'kamut',
+        'farro',
+        'durum',
+        'graham',
+        'vital wheat gluten',
+        'wheat starch',
+        'wheat bran',
+        'wheat germ',
+        'bread crumbs',
+        'panko',
+        'harina',
+        'tinapay',
       ],
-      'Soy': [
+      'soy': [
         'soy',
         'soya',
-        'lecithin',
         'tofu',
         'tempeh',
         'miso',
-        'glycine max',
-        'soybean',
+        'soy sauce',
+        'shoyu',
+        'tamari',
+        'soybean oil',
+        'soy protein',
+        'soy flour',
+        'soy lecithin',
         'edamame',
+        'natto',
+        'soy milk',
+        'textured soy protein',
+        'tvp',
+        'hydrolyzed soy protein',
+        'toyo',
+        'tokwa',
       ],
-      'Peanut': ['peanut', 'groundnut', 'arachis', 'arachis hypogaea'],
-      'Tree nut': [
-        'almond',
-        'cashew',
-        'walnut',
-        'pecan',
-        'pistachio',
-        'hazelnut',
-        'macadamia',
-        'brazil nut',
-        'pine nut',
+      'peanuts': [
+        'peanut',
+        'groundnut',
+        'arachis',
+        'peanut oil',
+        'peanut butter',
+        'peanut flour',
+        'peanut protein',
+        'monkey nut',
+        'goober',
+        'mani',
+        'peanut paste',
       ],
-      'Fish': [
+      'fish': [
         'fish',
-        'anchovy',
-        'sardine',
-        'tuna',
         'salmon',
+        'tuna',
         'cod',
         'mackerel',
+        'sardine',
+        'anchovy',
+        'trout',
+        'bass',
+        'tilapia',
+        'bangus',
+        'galunggong',
+        'fish sauce',
+        'patis',
+        'bagoong',
+        'fish oil',
+        'fish stock',
+        'dried fish',
+        'fish powder',
+        'worcestershire sauce',
+        'caesar dressing',
+        'isda',
       ],
-      'Shellfish': [
-        'shellfish',
+      'shellfish': [
         'shrimp',
         'crab',
         'lobster',
-        'crayfish',
-        'crustacean',
-        'mollusc',
         'oyster',
         'clam',
         'mussel',
         'scallop',
-        'chitin',
+        'abalone',
+        'squid',
+        'octopus',
+        'cuttlefish',
+        'prawn',
+        'crayfish',
+        'langostino',
+        'oyster sauce',
+        'shrimp paste',
+        'bagoong alamang',
+        'hipon',
+        'alimango',
+        'tahong',
+        'pusit',
       ],
-      'Sesame': ['sesame', 'tahini', 'sesamum'],
+      'tree nuts': [
+        'almond',
+        'walnut',
+        'cashew',
+        'pistachio',
+        'pecan',
+        'hazelnut',
+        'brazil nut',
+        'macadamia',
+        'pine nut',
+        'chestnut',
+        'filbert',
+        'hickory nut',
+        'butternut',
+        'chinquapin',
+        'ginkgo nut',
+        'lychee nut',
+        'shea nut',
+        'kasuy',
+        'pili nut',
+      ],
+      'sesame': [
+        'sesame',
+        'tahini',
+        'sesame oil',
+        'sesame seed',
+        'sesame paste',
+        'gomasio',
+        'halvah',
+        'benne',
+        'sim sim',
+        'til',
+        'linga',
+      ],
     };
 
-    for (var allergen in allergenTerms.keys) {
-      for (var term in allergenTerms[allergen]!) {
-        if (lowerIngredient.contains(term)) {
-          foundAllergens.add(allergen);
-          break;
+    // Check for each allergen pattern
+    for (String allergen in allergenPatterns.keys) {
+      for (String pattern in allergenPatterns[allergen]!) {
+        if (lowerIngredient.contains(pattern)) {
+          if (!allergens.contains(allergen)) {
+            allergens.add(allergen);
+          }
+          break; // Found this allergen, move to next
         }
       }
     }
 
-    return foundAllergens;
-  }
-
-  Future<String> getSimplifiedIngredient(String rawIngredient) async {
-    final model = GenerativeModel(
-      model: 'gemini-1.5-flash',
-      apiKey: geminiApiKey,
-    );
-
-    final prompt =
-        "Simplify or generalize this technical ingredient into a common food name. "
-        "Example: 'sodium caseinate' -> 'milk protein'. Now simplify: '$rawIngredient'";
-
-    final response = await model.generateContent([Content.text(prompt)]);
-    return response.text?.trim() ?? rawIngredient;
-  }
-
-  Future<Map<String, dynamic>> getAllergenInfoFromUSDA(
-    String ingredient,
-  ) async {
-    final url =
-        'https://api.nal.usda.gov/fdc/v1/foods/search?query=$ingredient&api_key=$usdaApiKey&pageSize=1';
-
-    final response = await http.get(Uri.parse(url));
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to fetch data from USDA');
+    // Special case handling for common compound ingredients
+    if (lowerIngredient.contains('sweet and sour sauce') ||
+        lowerIngredient.contains('sweet & sour sauce')) {
+      if (!allergens.contains('soy')) {
+        allergens.add(
+          'soy',
+        ); // Most commercial sweet and sour sauces contain soy
+      }
     }
 
-    final data = json.decode(response.body);
-    final foods = data['foods'] as List<dynamic>;
-
-    if (foods.isEmpty) {
-      return {'allergens': <String>[], 'risk': 'Safe'};
+    if (lowerIngredient.contains('teriyaki sauce')) {
+      if (!allergens.contains('soy')) {
+        allergens.add('soy');
+      }
+      if (!allergens.contains('wheat')) {
+        allergens.add('wheat');
+      }
     }
 
-    final description = foods.first['description'].toString().toLowerCase();
-
-    const knownAllergens = [
-      'milk',
-      'egg',
-      'peanut',
-      'soy',
-      'wheat',
-      'tree nut',
-      'shellfish',
-      'fish',
-      'oat',
-      'sesame',
-    ];
-
-    List<String> foundAllergens = [];
-    for (var allergen in knownAllergens) {
-      if (description.contains(allergen)) {
-        foundAllergens.add(allergen[0].toUpperCase() + allergen.substring(1));
+    if (lowerIngredient.contains('hoisin sauce')) {
+      if (!allergens.contains('soy')) {
+        allergens.add('soy');
       }
     }
 
     return {
-      'allergens': foundAllergens,
-      'risk': foundAllergens.isNotEmpty ? 'Contains allergen' : 'Safe',
+      'allergens': allergens,
+      'risk': allergens.isNotEmpty ? 'Contains allergen' : 'Safe',
     };
+  }
+
+  Future<Map<String, dynamic>> checkUSDADatabaseEnhanced(
+    String ingredient,
+  ) async {
+    try {
+      // Get simplified components first
+      final simplifiedResult = await simplifyIngredientWithAI(ingredient);
+      List<String> componentsToSearch =
+          simplifiedResult['components'] ?? [ingredient];
+
+      // Add the original ingredient and its variations
+      List<String> searchTerms = [
+        ingredient,
+        simplifiedResult['simplified'] ?? ingredient,
+        ...componentsToSearch,
+      ];
+
+      // Add word variations
+      for (String term in List.from(searchTerms)) {
+        if (term.contains(' ')) {
+          searchTerms.add(term.split(' ').first); // First word
+          searchTerms.add(term.split(' ').last); // Last word
+        }
+
+        // Remove common words
+        if (term.toLowerCase().contains('sauce')) {
+          searchTerms.add(term.toLowerCase().replaceAll('sauce', '').trim());
+        }
+      }
+
+      // Remove duplicates and short terms
+      searchTerms =
+          searchTerms.toSet().where((term) => term.length >= 3).toList();
+
+      for (String searchTerm in searchTerms) {
+        final url =
+            'https://api.nal.usda.gov/fdc/v1/foods/search?query=${Uri.encodeComponent(searchTerm)}&api_key=$usdaApiKey&pageSize=10';
+
+        final response = await http.get(Uri.parse(url));
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final foods = data['foods'] as List<dynamic>;
+
+          if (foods.isNotEmpty) {
+            List<String> foodDescriptions = [];
+            for (var food in foods.take(5)) {
+              final description = food['description'].toString();
+              final brandOwner = food['brandOwner']?.toString() ?? '';
+              final ingredients = food['ingredients']?.toString() ?? '';
+
+              String foodInfo = description;
+              if (brandOwner.isNotEmpty) foodInfo += ' by $brandOwner';
+              if (ingredients.isNotEmpty)
+                foodInfo += ' ingredients: $ingredients';
+
+              foodDescriptions.add(foodInfo);
+            }
+
+            return {
+              'found': true,
+              'data': foodDescriptions.join('\n'),
+              'searchTerm': searchTerm,
+            };
+          }
+        }
+      }
+
+      return {'found': false, 'data': null};
+    } catch (e) {
+      return {'found': false, 'data': null};
+    }
+  }
+
+  // Remove the old detectAllergensWithEnhancedRules method from analyzeIngredient
+  // Keep it as a helper method for USDA data analysis only
+  Future<Map<String, dynamic>> analyzeUSDADataForAllergens(
+    String usdaFoodData,
+  ) async {
+    // First try rule-based detection on USDA data
+    final ruleBasedResult = detectAllergensWithEnhancedRules(usdaFoodData);
+    if (ruleBasedResult['allergens'].isNotEmpty) {
+      return ruleBasedResult;
+    }
+
+    // If rule-based detection finds nothing, use AI
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: geminiApiKey,
+      );
+
+      final prompt = '''
+Analyze this USDA food database information and identify ALL allergens present.
+
+THE 9 MAJOR ALLERGENS (be thorough):
+1. Milk/Dairy: milk, cheese, butter, cream, whey, casein, lactose, yogurt, etc.
+2. Eggs: egg, albumin, lecithin, ovalbumin, mayonnaise, etc.
+3. Fish: any fish species, fish sauce, anchovy, worcestershire sauce, etc.
+4. Shellfish: shrimp, crab, lobster, oyster sauce, etc.
+5. Tree nuts: almonds, walnuts, cashews, etc. (NOT peanuts, NOT coconut)
+6. Peanuts: peanut, groundnut, arachis, peanut oil, etc.
+7. Wheat: wheat, flour, gluten, bread, pasta, etc.
+8. Soy: soy, soya, tofu, soy sauce, miso, etc.
+9. Sesame: sesame, tahini, sesame oil, etc.
+
+USDA FOOD DATA:
+$usdaFoodData
+
+IMPORTANT NOTES:
+- Sweet and sour sauce typically contains SOY (soy sauce)
+- Teriyaki sauce contains SOY and WHEAT
+- Fish sauce contains FISH
+- Oyster sauce contains SHELLFISH
+- Look for hidden allergens in ingredient lists
+
+Return JSON:
+{
+  "allergens": ["allergen1", "allergen2"],
+  "risk": "Contains allergen"
+}
+
+Be thorough and don't miss common allergens!
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      String cleanResponse = response.text ?? '';
+
+      if (cleanResponse.contains('```json')) {
+        cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+
+      return {
+        'allergens':
+            (jsonData['allergens'] as List?)?.cast<String>() ?? <String>[],
+        'risk':
+            (jsonData['allergens'] as List?)?.isNotEmpty == true
+                ? 'Contains allergen'
+                : 'Safe',
+      };
+    } catch (e) {
+      return ruleBasedResult;
+    }
+  }
+
+  Future<Map<String, dynamic>> getEnhancedAIAllergenAnalysis(
+    String ingredient,
+  ) async {
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: geminiApiKey,
+      );
+
+      final prompt = '''
+You are an expert food allergen detection system. Analyze this ingredient thoroughly.
+
+INGREDIENT: "$ingredient"
+
+THE 9 MAJOR ALLERGENS TO DETECT:
+1. Milk/Dairy: milk, cheese, butter, cream, whey, casein, lactose, etc.
+2. Eggs: egg, albumin, lecithin, ovalbumin, mayonnaise, etc.
+3. Fish: any fish, fish sauce, anchovy, worcestershire sauce, etc.
+4. Shellfish: shrimp, crab, lobster, oyster sauce, etc.
+5. Tree nuts: almonds, walnuts, cashews, etc. (NOT peanuts, NOT coconut)
+6. Peanuts: peanut, groundnut, arachis, etc.
+7. Wheat: wheat, flour, gluten, bread, pasta, etc.
+8. Soy: soy, soya, tofu, soy sauce, miso, etc.
+9. Sesame: sesame, tahini, sesame oil, etc.
+
+CRITICAL DETECTION RULES:
+- "Sweet and sour sauce" = contains SOY (soy sauce is main ingredient)
+- "Fish" ingredients = contains FISH only (not shellfish unless specifically mentioned)
+- "Fried fish" = contains FISH only
+- Look for compound ingredients that hide allergens
+- Consider Filipino/Asian food terms: patis (fish sauce), toyo (soy sauce), etc.
+
+Return JSON format:
+{
+  "allergens": ["specific_allergen_names"],
+  "risk": "Contains allergen" or "Safe"
+}
+
+IMPORTANT: Be accurate and don't add allergens that aren't actually present!
+''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      String cleanResponse = response.text ?? '';
+
+      if (cleanResponse.contains('```json')) {
+        cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
+      }
+
+      final jsonData = json.decode(cleanResponse.trim());
+
+      return {
+        'allergens':
+            (jsonData['allergens'] as List?)?.cast<String>() ?? <String>[],
+        'risk':
+            (jsonData['allergens'] as List?)?.isNotEmpty == true
+                ? 'Contains allergen'
+                : 'Safe',
+      };
+    } catch (e) {
+      return {'allergens': <String>[], 'risk': 'Safe'};
+    }
   }
 
   Widget getAllergenImage(String allergen) {
@@ -238,12 +597,15 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
         assetName = 'assets/allergens/Milk.png';
         break;
       case 'egg':
+      case 'eggs':
         assetName = 'assets/allergens/Eggs.png';
         break;
       case 'peanut':
+      case 'peanuts':
         assetName = 'assets/allergens/Nuts.png';
         break;
       case 'tree nut':
+      case 'tree nuts':
         assetName = 'assets/allergens/Cashew.png';
         break;
       case 'soy':
@@ -275,21 +637,28 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
   Color getAllergenColor(String allergen) {
     switch (allergen.toLowerCase()) {
       case 'milk':
-        return Colors.pink.shade100;
-      case 'oat':
-        return Colors.blue.shade100;
+        return const Color.fromARGB(255, 213, 230, 235);
       case 'egg':
-        return Colors.yellow.shade100;
+      case 'eggs':
+        return const Color.fromARGB(255, 213, 230, 235);
       case 'peanut':
-        return Colors.orange.shade100;
+      case 'peanuts':
+        return const Color.fromARGB(255, 213, 230, 235);
+      case 'tree nut':
+      case 'tree nuts':
+        return const Color.fromARGB(255, 213, 230, 235);
       case 'soy':
-        return Colors.green.shade100;
+        return const Color.fromARGB(255, 213, 230, 235);
       case 'wheat':
-        return Colors.amber.shade100;
+        return const Color.fromARGB(255, 213, 230, 235);
+      case 'fish':
+        return const Color.fromARGB(255, 213, 230, 235);
+      case 'shellfish':
+        return const Color.fromARGB(255, 213, 230, 235);
       case 'sesame':
-        return Colors.brown.shade100;
+        return const Color.fromARGB(255, 213, 230, 235);
       default:
-        return Colors.grey.shade100;
+        return const Color.fromARGB(255, 213, 230, 235);
     }
   }
 
@@ -305,15 +674,6 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 20),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
           Row(
             children: [
               IconButton(
@@ -344,9 +704,18 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
           else if (errorMessage != null)
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Text(
-                'Error: $errorMessage',
-                style: const TextStyle(color: Colors.red),
+              child: Column(
+                children: [
+                  Text(
+                    'Error: $errorMessage',
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    onPressed: analyzeIngredient,
+                    child: const Text('Retry'),
+                  ),
+                ],
               ),
             )
           else ...[
@@ -359,6 +728,7 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
               ),
               textAlign: TextAlign.left,
             ),
+            const SizedBox(height: 12),
 
             const SizedBox(height: 16),
             if (allergensFound.isNotEmpty) ...[
@@ -409,15 +779,19 @@ class IngredientAllergenModalState extends State<IngredientAllergenModal> {
                               color: getAllergenColor(allergen),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: getAllergenImage(allergen),
+                            child: Center(child: getAllergenImage(allergen)),
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            allergen,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500,
+                          SizedBox(
+                            width: 60,
+                            child: Text(
+                              allergen,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
                             ),
                           ),
                         ],

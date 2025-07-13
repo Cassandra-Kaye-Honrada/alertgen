@@ -90,6 +90,79 @@ class ScanHistoryScreen extends StatelessWidget {
     }
   }
 
+  // void navigateToResult(BuildContext context, DocumentSnapshot doc) async {
+  //   try {
+  //     final data = doc.data() as Map<String, dynamic>;
+  //     final dishName = data['dishName'] ?? 'Unknown Dish';
+  //     final description = data['description'] ?? '';
+  //     final ingredients = List<String>.from(data['ingredients'] ?? []);
+  //     final allergensData = data['allergens'] as List<dynamic>? ?? [];
+  //     final isOCRAnalysis = data['isOCRAnalysis'] as bool? ?? false;
+
+  //     String? fileName = data['fileName'] ?? data['imagePath']?.split('/').last;
+
+  //     if (fileName == null) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         const SnackBar(content: Text('Image filename not found')),
+  //       );
+  //       return;
+  //     }
+
+  //     showDialog(
+  //       context: context,
+  //       barrierDismissible: false,
+  //       builder:
+  //           (_) => const Center(
+  //             child: CircularProgressIndicator(
+  //               valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+  //             ),
+  //           ),
+  //     );
+
+  //     final imageFile = await downloadAndCacheImage(fileName);
+  //     Navigator.of(context).pop();
+
+  //     if (imageFile == null) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(content: Text('Failed to load image: $fileName')),
+  //       );
+  //       return;
+  //     }
+
+  //     final allergens =
+  //         allergensData.map((item) {
+  //           final map = item as Map<String, dynamic>;
+  //           return AllergenInfo(
+  //             name: map['name'] ?? 'Unknown',
+  //             riskLevel: map['riskLevel'] ?? 'mild',
+  //             symptoms: List<String>.from(map['symptoms'] ?? []),
+  //             source: map['source'] ?? '',
+  //           );
+  //         }).toList();
+
+  //     Navigator.push(
+  //       context,
+  //       MaterialPageRoute(
+  //         builder:
+  //             (_) => ResultScreen(
+  //               image: imageFile,
+  //               dishName: dishName,
+  //               description: description,
+  //               ingredients: ingredients,
+  //               allergens: allergens,
+  //               isOCRAnalysis: isOCRAnalysis,
+  //               onIngredientsChanged: (_) {},
+  //             ),
+  //       ),
+  //     );
+  //   } catch (e) {
+  //     Navigator.of(context).pop();
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(SnackBar(content: Text('Error opening result: $e')));
+  //   }
+  // }
+
   void navigateToResult(BuildContext context, DocumentSnapshot doc) async {
     try {
       final data = doc.data() as Map<String, dynamic>;
@@ -98,34 +171,33 @@ class ScanHistoryScreen extends StatelessWidget {
       final ingredients = List<String>.from(data['ingredients'] ?? []);
       final allergensData = data['allergens'] as List<dynamic>? ?? [];
       final isOCRAnalysis = data['isOCRAnalysis'] as bool? ?? false;
-
       String? fileName = data['fileName'] ?? data['imagePath']?.split('/').last;
-      if (fileName == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Image filename not found')),
-        );
-        return;
-      }
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (_) => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+      File? imageFile;
+      if (fileName != null && fileName.isNotEmpty) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (_) => const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B8FAC)),
+                ),
               ),
-            ),
-      );
-
-      final imageFile = await downloadAndCacheImage(fileName);
-      Navigator.of(context).pop();
-
-      if (imageFile == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load image: $fileName')),
         );
-        return;
+
+        imageFile = await downloadAndCacheImage(fileName);
+        Navigator.of(context).pop();
+
+        if (imageFile == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load image: $fileName')),
+          );
+          // Continue to ResultScreen even if image fails to load
+        }
+      } else {
+        // No image associated (e.g., manual input)
+        imageFile = null;
       }
 
       final allergens =
@@ -144,7 +216,7 @@ class ScanHistoryScreen extends StatelessWidget {
         MaterialPageRoute(
           builder:
               (_) => ResultScreen(
-                image: imageFile,
+                image: imageFile, // Pass null if no image
                 dishName: dishName,
                 description: description,
                 ingredients: ingredients,

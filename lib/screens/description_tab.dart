@@ -545,12 +545,10 @@ IMPORTANT:
           ),
           const SizedBox(height: 12),
           Text(
-            widget.description,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[700],
-              height: 1.5,
-            ),
+            widget.description.isNotEmpty
+                ? widget.description
+                : 'No description available',
+            style: TextStyle(fontSize: 16),
           ),
           const SizedBox(height: 24),
           Row(
