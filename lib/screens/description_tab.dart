@@ -416,7 +416,10 @@ IMPORTANT:
                 builder:
                     (_, controller) => SingleChildScrollView(
                       controller: controller,
-                      child: IngredientAllergenModal(ingredient: ingredient),
+                      child: IngredientAllergenModal(
+                        ingredient: ingredient,
+                        currentAllergens: widget.currentAllergens,
+                      ),
                     ),
               ),
         );

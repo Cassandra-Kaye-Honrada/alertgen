@@ -16,7 +16,6 @@ class SignUpScreenState extends State<SignUpScreen> {
   final confirmPasswordController = TextEditingController();
 
   final formKey = GlobalKey<FormState>();
-  bool rememberMe = false;
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
   bool isLoading = false;
@@ -320,24 +319,7 @@ class SignUpScreenState extends State<SignUpScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: rememberMe,
-                      onChanged:
-                          (value) =>
-                              setState(() => rememberMe = value ?? false),
-                      activeColor: const Color(0xFF00A19C),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    const Text(
-                      'Remember me',
-                      style: TextStyle(fontSize: 14, color: Colors.black87),
-                    ),
-                  ],
-                ),
+
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: isLoading ? null : signUp,
