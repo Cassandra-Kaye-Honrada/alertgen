@@ -113,12 +113,22 @@ class _CameraScannerScreenState extends State<CameraScannerScreen>
     if (_cameraController?.value.isInitialized != true) return;
 
     try {
-      _flashMode =
-          _flashMode == FlashMode.auto
-              ? FlashMode.always
-              : _flashMode == FlashMode.always
-              ? FlashMode.off
-              : FlashMode.auto;
+      switch (_flashMode) {
+        case FlashMode.auto:
+          _flashMode = FlashMode.always;
+          break;
+        case FlashMode.always:
+          _flashMode = FlashMode.off;
+          break;
+        case FlashMode.off:
+          _flashMode = FlashMode.torch;
+          break;
+        case FlashMode.torch:
+          _flashMode = FlashMode.auto;
+          break;
+        default:
+          _flashMode = FlashMode.auto;
+      }
 
       await _cameraController!.setFlashMode(_flashMode);
       setState(() {});
@@ -483,10 +493,7 @@ CRITICAL ACCURACY REQUIREMENTS:
     try {
       setState(() => isOCRAnalysis = true);
 
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash-preview-04-17',
-        apiKey: apiKey,
-      );
+      final model = GenerativeModel(model: 'gemini-2.5-pro', apiKey: apiKey);
 
       final prompt = '''$_ocrAnalysisPrompt
 
@@ -564,10 +571,7 @@ Focus on providing the most accurate product identification possible using your 
 
     try {
       setState(() => isOCRAnalysis = false);
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash-preview-04-17',
-        apiKey: apiKey,
-      );
+      final model = GenerativeModel(model: 'gemini-2.5-pro', apiKey: apiKey);
 
       final imageBytes = await imageFile.readAsBytes();
       final prompt = '''$_imageAnalysisPrompt
@@ -665,10 +669,7 @@ Base your identification primarily on what you can SEE in the image. Be specific
     if (apiKey == 'YOUR_API_KEY_HERE') return "Description not available";
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash-preview-04-17',
-        apiKey: apiKey,
-      );
+      final model = GenerativeModel(model: 'gemini-2.5-pro', apiKey: apiKey);
 
       final prompt = '''
 Generate a detailed description of the Filipino dish "$dishName" that includes:
@@ -803,10 +804,7 @@ Make the description:
   }
 
   Future<void> updateAllergens(List<String> newIngredients) async {
-    final model = GenerativeModel(
-      model: 'gemini-2.5-flash-preview-04-17',
-      apiKey: apiKey,
-    );
+    final model = GenerativeModel(model: 'gemini-2.5-pro', apiKey: apiKey);
 
     final prompt = '''
 Based on these ingredients, identify allergens from the 9 common allergens only:
@@ -894,6 +892,8 @@ If any technical ingredient terms are detected, map them to their corresponding 
         return Icons.flash_on;
       case FlashMode.off:
         return Icons.flash_off;
+      case FlashMode.torch:
+        return Icons.highlight;
       default:
         return Icons.flash_auto;
     }
@@ -1422,6 +1422,9 @@ class AllergenInfo {
     final rest = name.substring(1).toLowerCase();
     return 'assets/allergens/$firstLetter$rest.png';
   }
+
+  String get formattedSource => "Source: $source";
+
 
   IconData get iconData {
     final String name = this.name.toLowerCase().trim();

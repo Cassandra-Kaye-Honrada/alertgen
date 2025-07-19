@@ -1,8 +1,10 @@
 import 'package:allergen/screens/login.dart';
+import 'package:allergen/screens/verify_google.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:email_validator/email_validator.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class SignUpScreen extends StatefulWidget {
   @override
@@ -20,6 +22,7 @@ class SignUpScreenState extends State<SignUpScreen> {
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
   bool isLoading = false;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   Future<void> signUp() async {
     if (formKey.currentState!.validate()) {
@@ -34,6 +37,8 @@ class SignUpScreenState extends State<SignUpScreen> {
               password: passwordController.text,
             );
 
+        await userCredential.user!.sendEmailVerification();
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -42,14 +47,25 @@ class SignUpScreenState extends State<SignUpScreen> {
               'lastName': lastNameController.text.trim(),
               'email': emailController.text.trim(),
               'createdAt': FieldValue.serverTimestamp(),
+              'provider': 'email',
             });
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute(builder: (_) => LoginScreen()));
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Account created successfully')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Account created successfully! Verification email sent to ${emailController.text.trim()}',
+            ),
+            duration: Duration(seconds: 3),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder:
+                (_) => VerifyEmailScreen(email: emailController.text.trim()),
+          ),
+        );
       } on FirebaseAuthException catch (e) {
         String message;
         switch (e.code) {
@@ -66,14 +82,69 @@ class SignUpScreenState extends State<SignUpScreen> {
             message = 'An error occurred. Please try again';
         }
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
       } finally {
         setState(() {
           isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> signInWithGoogle() async {
+    setState(() => isLoading = true);
+
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        setState(() => isLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithCredential(credential);
+
+      bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
+
+      if (isNewUser) {
+        // Save user data to Firestore for new users
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .set({
+              'email': userCredential.user!.email,
+              'createdAt': FieldValue.serverTimestamp(),
+              'provider': 'google',
+            });
+      }
+
+      await userCredential.user!.sendEmailVerification();
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder:
+              (_) => VerifyEmailScreen(email: userCredential.user!.email ?? ''),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to sign in with Google: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
@@ -168,9 +239,6 @@ class SignUpScreenState extends State<SignUpScreen> {
                             decoration: InputDecoration(
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -217,9 +285,6 @@ class SignUpScreenState extends State<SignUpScreen> {
                             decoration: InputDecoration(
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -267,7 +332,6 @@ class SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -300,11 +364,12 @@ class SignUpScreenState extends State<SignUpScreen> {
                       (value) =>
                           value == null || value.isEmpty
                               ? 'Please enter password'
+                              : value.length < 6
+                              ? 'Password must be at least 6 characters'
                               : null,
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -356,7 +421,6 @@ class SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -388,7 +452,6 @@ class SignUpScreenState extends State<SignUpScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: isLoading ? null : signUp,
@@ -426,9 +489,7 @@ class SignUpScreenState extends State<SignUpScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    socialButton('assets/images/google.png', () {
-                      // TODO: Implement Google sign-in
-                    }),
+                    socialButton('assets/images/google.png', signInWithGoogle),
                     const SizedBox(width: 16),
                     socialButton('assets/images/fb.png', () {
                       // TODO: Implement Facebook sign-in

@@ -129,12 +129,10 @@ void signInWithGoogle() async {
         bool hasCompletedOnboarding = await checkIfCompletedOnboarding();
         
         if (hasCompletedOnboarding) {
-          // Go to home screen
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => Homescreen()),
           );
         } else {
-          // Go to onboarding
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => OnboardingScreen()),
           );
@@ -192,7 +190,6 @@ Future<bool> checkIfCompletedOnboarding() async {
 
 void signInWithFacebook() async {
   try {
-    // Trigger the Facebook sign-in flow
     final LoginResult loginResult = await FacebookAuth.instance.login();
 
     if (loginResult.status == LoginStatus.success) {
